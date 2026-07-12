@@ -1,0 +1,927 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
+<title>Iron Log — Gym Tracker</title>
+<meta name="theme-color" content="#18181B" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Iron Log" />
+<link rel="manifest" href="manifest.json" />
+<link rel="apple-touch-icon" href="icon-192.png" />
+<link rel="icon" href="icon-192.png" />
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; padding: 0; background: #18181B; height: 100%; }
+  body { font-family: 'Inter', sans-serif; overscroll-behavior-y: none; }
+  #root { min-height: 100vh; min-height: 100dvh; }
+  input, select { font-family: 'Inter', sans-serif; }
+  input::placeholder { color: #5A5A5F; }
+  ::-webkit-scrollbar { height: 6px; width: 6px; }
+  ::-webkit-scrollbar-thumb { background: #38383D; border-radius: 3px; }
+  .flex { display: flex; }
+  .flex-1 { flex: 1 1 0%; }
+  .flex-col { flex-direction: column; }
+  .items-center { align-items: center; }
+  .justify-center { justify-content: center; }
+  .justify-between { justify-content: space-between; }
+  .text-center { text-align: center; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useMemo, useCallback } = React;
+
+// ================= ICONS (self-contained, no external icon library) =================
+function IconWrap({ size = 16, style, children }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" style={style}>
+      {children}
+    </svg>
+  );
+}
+function Plus({ size, color = "currentColor", style }) {
+  return <IconWrap size={size} style={style}><line x1="12" y1="5" x2="12" y2="19" stroke={color} strokeWidth="2" strokeLinecap="round" /><line x1="5" y1="12" x2="19" y2="12" stroke={color} strokeWidth="2" strokeLinecap="round" /></IconWrap>;
+}
+function X({ size, color = "currentColor", style }) {
+  return <IconWrap size={size} style={style}><line x1="5" y1="5" x2="19" y2="19" stroke={color} strokeWidth="2" strokeLinecap="round" /><line x1="19" y1="5" x2="5" y2="19" stroke={color} strokeWidth="2" strokeLinecap="round" /></IconWrap>;
+}
+function Trash2({ size, color = "currentColor", style }) {
+  return (
+    <IconWrap size={size} style={style}>
+      <line x1="4" y1="7" x2="20" y2="7" stroke={color} strokeWidth="2" strokeLinecap="round" />
+      <path d="M6 7l1 13a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-13" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M9 7V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      <line x1="10" y1="11" x2="10" y2="17" stroke={color} strokeWidth="2" strokeLinecap="round" />
+      <line x1="14" y1="11" x2="14" y2="17" stroke={color} strokeWidth="2" strokeLinecap="round" />
+    </IconWrap>
+  );
+}
+function Dumbbell({ size, color = "currentColor", style }) {
+  return (
+    <IconWrap size={size} style={style}>
+      <rect x="1" y="9" width="4" height="6" rx="1" stroke={color} strokeWidth="2" />
+      <rect x="19" y="9" width="4" height="6" rx="1" stroke={color} strokeWidth="2" />
+      <line x1="7" y1="12" x2="17" y2="12" stroke={color} strokeWidth="2" strokeLinecap="round" />
+      <rect x="6" y="7" width="2" height="10" rx="0.5" fill={color} stroke="none" />
+      <rect x="16" y="7" width="2" height="10" rx="0.5" fill={color} stroke="none" />
+    </IconWrap>
+  );
+}
+function TrendingUp({ size, color = "currentColor", style }) {
+  return (
+    <IconWrap size={size} style={style}>
+      <polyline points="3,17 9,11 13,15 21,6" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      <polyline points="15,6 21,6 21,12" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </IconWrap>
+  );
+}
+function LayoutGrid({ size, color = "currentColor", style }) {
+  return (
+    <IconWrap size={size} style={style}>
+      <rect x="3" y="3" width="7" height="7" rx="1" stroke={color} strokeWidth="2" />
+      <rect x="14" y="3" width="7" height="7" rx="1" stroke={color} strokeWidth="2" />
+      <rect x="3" y="14" width="7" height="7" rx="1" stroke={color} strokeWidth="2" />
+      <rect x="14" y="14" width="7" height="7" rx="1" stroke={color} strokeWidth="2" />
+    </IconWrap>
+  );
+}
+function Scale({ size, color = "currentColor", style }) {
+  return (
+    <IconWrap size={size} style={style}>
+      <rect x="4" y="13" width="16" height="7" rx="1.5" stroke={color} strokeWidth="2" />
+      <circle cx="12" cy="7" r="4" stroke={color} strokeWidth="2" />
+      <line x1="12" y1="11" x2="12" y2="13" stroke={color} strokeWidth="2" />
+    </IconWrap>
+  );
+}
+function ListChecks({ size, color = "currentColor", style }) {
+  return (
+    <IconWrap size={size} style={style}>
+      <polyline points="3,7 5,9 9,5" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      <line x1="12" y1="7" x2="21" y2="7" stroke={color} strokeWidth="2" strokeLinecap="round" />
+      <polyline points="3,15 5,17 9,13" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      <line x1="12" y1="15" x2="21" y2="15" stroke={color} strokeWidth="2" strokeLinecap="round" />
+    </IconWrap>
+  );
+}
+function CalendarDays({ size, color = "currentColor", style }) {
+  return (
+    <IconWrap size={size} style={style}>
+      <rect x="3" y="5" width="18" height="16" rx="2" stroke={color} strokeWidth="2" />
+      <line x1="3" y1="10" x2="21" y2="10" stroke={color} strokeWidth="2" />
+      <line x1="8" y1="2" x2="8" y2="6" stroke={color} strokeWidth="2" strokeLinecap="round" />
+      <line x1="16" y1="2" x2="16" y2="6" stroke={color} strokeWidth="2" strokeLinecap="round" />
+    </IconWrap>
+  );
+}
+function Trophy({ size, color = "currentColor", style }) {
+  return (
+    <IconWrap size={size} style={style}>
+      <path d="M8 4h8v5a4 4 0 0 1-8 0V4z" stroke={color} strokeWidth="2" strokeLinejoin="round" />
+      <path d="M8 5H5.5a2 2 0 0 0 0 4H7" stroke={color} strokeWidth="2" strokeLinecap="round" />
+      <path d="M16 5h2.5a2 2 0 0 1 0 4H17" stroke={color} strokeWidth="2" strokeLinecap="round" />
+      <line x1="12" y1="13" x2="12" y2="18" stroke={color} strokeWidth="2" />
+      <line x1="8.5" y1="20" x2="15.5" y2="20" stroke={color} strokeWidth="2" strokeLinecap="round" />
+      <line x1="12" y1="18" x2="12" y2="20" stroke={color} strokeWidth="2" />
+    </IconWrap>
+  );
+}
+function Check({ size, color = "currentColor", style }) {
+  return <IconWrap size={size} style={style}><polyline points="4,12 9,17 20,6" stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" /></IconWrap>;
+}
+function Circle({ size, color = "currentColor", style }) {
+  return <IconWrap size={size} style={style}><circle cx="12" cy="12" r="8" stroke={color} strokeWidth="2" /></IconWrap>;
+}
+function ChevronRight({ size, color = "currentColor", style }) {
+  return <IconWrap size={size} style={style}><polyline points="9,6 15,12 9,18" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></IconWrap>;
+}
+
+// ================= TOKENS =================
+const COLORS = {
+  bg: "#18181B", surface: "#212124", surfaceRaised: "#28282C", line: "#38383D",
+  text: "#F2F0EA", textMuted: "#8E8E93", textFaint: "#5A5A5F",
+};
+const CATEGORY_COLORS = { Push: "#D6483F", Pull: "#3573A5", Legs: "#DDA83A", Core: "#4C9A6A", Other: "#B5B5BA" };
+const CATEGORIES = Object.keys(CATEGORY_COLORS);
+const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+const DEFAULT_EXERCISES = [
+  { id: "bench-press", name: "Bench Press", category: "Push" },
+  { id: "overhead-press", name: "Overhead Press", category: "Push" },
+  { id: "incline-bench", name: "Incline Bench Press", category: "Push" },
+  { id: "dips", name: "Dips", category: "Push" },
+  { id: "deadlift", name: "Deadlift", category: "Pull" },
+  { id: "barbell-row", name: "Barbell Row", category: "Pull" },
+  { id: "pull-up", name: "Pull-up", category: "Pull" },
+  { id: "lat-pulldown", name: "Lat Pulldown", category: "Pull" },
+  { id: "squat", name: "Back Squat", category: "Legs" },
+  { id: "leg-press", name: "Leg Press", category: "Legs" },
+  { id: "romanian-deadlift", name: "Romanian Deadlift", category: "Legs" },
+  { id: "lunges", name: "Lunges", category: "Legs" },
+  { id: "plank", name: "Plank", category: "Core" },
+  { id: "ab-wheel", name: "Ab Wheel Rollout", category: "Core" },
+  { id: "hanging-leg-raise", name: "Hanging Leg Raise", category: "Core" },
+];
+
+const PLATES_KG = [25, 20, 15, 10, 5, 2.5, 1.25];
+const PLATES_LB = [45, 35, 25, 10, 5, 2.5];
+const PLATE_COLOR_KG = { 25: "#D6483F", 20: "#3573A5", 15: "#DDA83A", 10: "#4C9A6A", 5: "#B5B5BA", 2.5: "#26262A", 1.25: "#26262A" };
+const PLATE_COLOR_LB = { 45: "#D6483F", 35: "#3573A5", 25: "#DDA83A", 10: "#4C9A6A", 5: "#B5B5BA", 2.5: "#26262A" };
+const BAR_KG = 20, BAR_LB = 45;
+
+function genId() { return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`; }
+function todayStr() { return new Date().toISOString().slice(0, 10); }
+function epley1RM(weight, reps) { return reps <= 1 ? weight : weight * (1 + reps / 30); }
+function kgToLb(kg) { return kg * 2.20462; }
+function lbToKg(lb) { return lb / 2.20462; }
+function fmt(n) { return Math.round(n * 10) / 10; }
+function dayNameFromDateStr(dateStr) { const idx = new Date(dateStr + "T00:00:00").getDay(); return DAYS[(idx + 6) % 7]; }
+function isoWeekKey(dateStr) {
+  const d = new Date(dateStr + "T00:00:00");
+  d.setDate(d.getDate() + 4 - (d.getDay() || 7));
+  const yearStart = new Date(d.getFullYear(), 0, 1);
+  const weekNo = Math.ceil(((d - yearStart) / 86400000 + 1) / 7);
+  return `${d.getFullYear()}-W${String(weekNo).padStart(2, "0")}`;
+}
+function calcPlates(targetWeight, unit) {
+  const bar = unit === "kg" ? BAR_KG : BAR_LB;
+  const plateSet = unit === "kg" ? PLATES_KG : PLATES_LB;
+  const colorMap = unit === "kg" ? PLATE_COLOR_KG : PLATE_COLOR_LB;
+  let perSide = Math.max(0, (targetWeight - bar) / 2);
+  const plates = [];
+  for (const p of plateSet) { while (perSide >= p - 0.001) { plates.push({ size: p, color: colorMap[p] }); perSide -= p; } }
+  return { plates, bar };
+}
+
+// ================= STORAGE (localStorage-backed, same async interface) =================
+const STORAGE_PREFIX = "ironlog:";
+async function loadJSON(key, fallback) {
+  try {
+    const raw = localStorage.getItem(STORAGE_PREFIX + key);
+    return raw ? JSON.parse(raw) : fallback;
+  } catch { return fallback; }
+}
+async function saveJSON(key, value) {
+  try { localStorage.setItem(STORAGE_PREFIX + key, JSON.stringify(value)); } catch (e) { console.error("storage error", e); }
+}
+
+// ================= LIGHTWEIGHT CHARTS (no external chart library) =================
+function niceMax(v) { if (v <= 0) return 1; const p = Math.pow(10, Math.floor(Math.log10(v))); const n = v / p; const step = n <= 1 ? 1 : n <= 2 ? 2 : n <= 5 ? 5 : 10; return step * p; }
+
+function SimpleLineChart({ data, xKey, lines, unit = "", height = 260 }) {
+  const W = 640, H = height, padL = 46, padR = 16, padT = 14, padB = 28;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  if (!data.length) return null;
+  let allVals = [];
+  lines.forEach((ln) => data.forEach((d) => { if (typeof d[ln.dataKey] === "number") allVals.push(d[ln.dataKey]); }));
+  let min = Math.min(...allVals), max = Math.max(...allVals);
+  if (min === max) { min -= 1; max += 1; }
+  const pad = (max - min) * 0.12;
+  min -= pad; max += pad;
+  const xFor = (i) => padL + (data.length === 1 ? plotW / 2 : (i / (data.length - 1)) * plotW);
+  const yFor = (v) => padT + (1 - (v - min) / (max - min)) * plotH;
+  const gridLines = 4;
+  const showEvery = Math.max(1, Math.ceil(data.length / 7));
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", height: "auto", display: "block" }}>
+      {Array.from({ length: gridLines + 1 }).map((_, i) => {
+        const v = min + ((max - min) * i) / gridLines;
+        const y = yFor(v);
+        return (
+          <g key={i}>
+            <line x1={padL} y1={y} x2={W - padR} y2={y} stroke={COLORS.line} strokeDasharray="3 3" />
+            <text x={padL - 8} y={y + 3} fontSize="10" fill={COLORS.textFaint} textAnchor="end" fontFamily="IBM Plex Mono, monospace">{fmt(v)}{unit}</text>
+          </g>
+        );
+      })}
+      {data.map((d, i) => (i % showEvery === 0 || i === data.length - 1) && (
+        <text key={i} x={xFor(i)} y={H - 8} fontSize="10" fill={COLORS.textFaint} textAnchor="middle" fontFamily="IBM Plex Mono, monospace">{d[xKey]}</text>
+      ))}
+      {lines.map((ln) => {
+        const pts = data.map((d, i) => `${xFor(i)},${yFor(d[ln.dataKey])}`).join(" ");
+        return (
+          <g key={ln.dataKey}>
+            <polyline points={pts} fill="none" stroke={ln.color} strokeWidth="2.5" strokeDasharray={ln.dashed ? "5 4" : "0"} strokeLinecap="round" strokeLinejoin="round" />
+            {data.map((d, i) => (
+              <circle key={i} cx={xFor(i)} cy={yFor(d[ln.dataKey])} r="3.2" fill={ln.color}>
+                <title>{`${ln.label}: ${fmt(d[ln.dataKey])}${unit} (${d[xKey]})`}</title>
+              </circle>
+            ))}
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+function SimpleStackedBarChart({ data, xKey, series, unit = "", height = 260 }) {
+  const W = 640, H = height, padL = 46, padR = 16, padT = 14, padB = 28;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  if (!data.length) return null;
+  const totals = data.map((d) => series.reduce((s, ser) => s + (d[ser.dataKey] || 0), 0));
+  const max = niceMax(Math.max(...totals, 1));
+  const yFor = (v) => padT + (1 - v / max) * plotH;
+  const gap = 0.35;
+  const bw = (plotW / data.length) * (1 - gap);
+  const gridLines = 4;
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", height: "auto", display: "block" }}>
+      {Array.from({ length: gridLines + 1 }).map((_, i) => {
+        const v = (max * i) / gridLines;
+        const y = yFor(v);
+        return (
+          <g key={i}>
+            <line x1={padL} y1={y} x2={W - padR} y2={y} stroke={COLORS.line} strokeDasharray="3 3" />
+            <text x={padL - 8} y={y + 3} fontSize="10" fill={COLORS.textFaint} textAnchor="end" fontFamily="IBM Plex Mono, monospace">{Math.round(v)}</text>
+          </g>
+        );
+      })}
+      {data.map((d, i) => {
+        const cx = padL + (i + 0.5) * (plotW / data.length);
+        let cum = 0;
+        return (
+          <g key={i}>
+            {series.map((ser) => {
+              const v = d[ser.dataKey] || 0;
+              if (v <= 0) return null;
+              const y0 = yFor(cum), y1 = yFor(cum + v);
+              cum += v;
+              return (
+                <rect key={ser.dataKey} x={cx - bw / 2} y={y1} width={bw} height={Math.max(0, y0 - y1)} fill={ser.color}>
+                  <title>{`${ser.label}: ${Math.round(v)}${unit}`}</title>
+                </rect>
+              );
+            })}
+            <text x={cx} y={H - 8} fontSize="9.5" fill={COLORS.textFaint} textAnchor="middle" fontFamily="IBM Plex Mono, monospace">{d[xKey]}</text>
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+function ChartLegend({ items }) {
+  return (
+    <div className="flex items-center" style={{ gap: 14, flexWrap: "wrap", padding: "0 12px 6px" }}>
+      {items.map((it) => (
+        <div key={it.label} className="flex items-center" style={{ gap: 5 }}>
+          <div style={{ width: 8, height: 8, borderRadius: it.dashed ? 0 : 99, background: it.color }} />
+          <span style={{ fontSize: 11, color: COLORS.textMuted }}>{it.label}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ================= SHARED UI =================
+function Segmented({ options, value, onChange }) {
+  return (
+    <div className="flex" style={{ background: COLORS.surface, borderRadius: 8, padding: 3, border: `1px solid ${COLORS.line}` }}>
+      {options.map((o) => (
+        <button key={o.value} onClick={() => onChange(o.value)} className="flex-1 flex items-center justify-center"
+          style={{ padding: "6px 10px", borderRadius: 6, fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, fontWeight: 600, letterSpacing: 0.5,
+            color: value === o.value ? COLORS.bg : COLORS.textMuted, background: value === o.value ? COLORS.text : "transparent", border: "none", cursor: "pointer" }}>
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function PlateStack({ weight, unit }) {
+  const { plates } = calcPlates(weight, unit);
+  return (
+    <div className="flex items-center justify-center" style={{ gap: 2, height: 90 }}>
+      <div style={{ display: "flex", flexDirection: "row-reverse", alignItems: "center", gap: 2 }}>
+        {plates.map((p, i) => (
+          <div key={i} title={`${p.size}${unit}`} style={{ width: 10 + Math.min(p.size, 25) * 1.1, height: 14 + Math.min(p.size, 25) * 2.6, background: p.color, borderRadius: 3, border: "1px solid rgba(0,0,0,0.35)", flexShrink: 0 }} />
+        ))}
+      </div>
+      <div style={{ width: 46, height: 8, background: "#6b6b70", borderRadius: 2 }} />
+      <div style={{ width: 8, height: 40, background: COLORS.textFaint, borderRadius: 2 }} />
+    </div>
+  );
+}
+
+function EmptyState({ icon: Icon, title, body }) {
+  return (
+    <div className="flex flex-col items-center justify-center text-center" style={{ padding: "48px 20px", color: COLORS.textMuted }}>
+      <Icon size={28} style={{ marginBottom: 12, opacity: 0.5 }} />
+      <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: 20, letterSpacing: 1, color: COLORS.text, marginBottom: 4 }}>{title}</div>
+      <div style={{ fontSize: 13, maxWidth: 280 }}>{body}</div>
+    </div>
+  );
+}
+
+function StatCard({ label, value, sub, color }) {
+  return (
+    <div style={{ flex: "1 1 150px", background: COLORS.surface, border: `1px solid ${COLORS.line}`, borderRadius: 10, padding: 14, borderTop: `2px solid ${color}` }}>
+      <div style={{ fontSize: 10.5, color: COLORS.textMuted, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: 0.5 }}>{label}</div>
+      <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: 26, marginTop: 4, letterSpacing: 0.5 }}>{value}</div>
+      <div style={{ fontSize: 11, color: COLORS.textFaint, marginTop: 2 }}>{sub}</div>
+    </div>
+  );
+}
+
+// ================= MAIN APP =================
+function GymTracker() {
+  const [tab, setTab] = useState("log");
+  const [unit, setUnit] = useState("kg");
+  const [exercises, setExercises] = useState(DEFAULT_EXERCISES);
+  const [entries, setEntries] = useState([]);
+  const [bwEntries, setBwEntries] = useState([]);
+  const [routines, setRoutines] = useState([]);
+  const [weekPlan, setWeekPlan] = useState({});
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      const [ex, en, bw, u, ro, wp] = await Promise.all([
+        loadJSON("exercises", DEFAULT_EXERCISES), loadJSON("workout_entries", []), loadJSON("bodyweight_entries", []),
+        loadJSON("unit_pref", "kg"), loadJSON("routines", []), loadJSON("week_plan", {}),
+      ]);
+      setExercises(ex); setEntries(en); setBwEntries(bw); setUnit(u); setRoutines(ro); setWeekPlan(wp); setLoaded(true);
+    })();
+  }, []);
+
+  const changeUnit = useCallback((u) => { setUnit(u); saveJSON("unit_pref", u); }, []);
+  const addExercise = useCallback((name, category) => {
+    const ex = { id: genId(), name, category };
+    setExercises((prev) => { const next = [...prev, ex]; saveJSON("exercises", next); return next; });
+    return ex.id;
+  }, []);
+  const addEntry = useCallback((entry) => { setEntries((prev) => { const next = [...prev, entry]; saveJSON("workout_entries", next); return next; }); }, []);
+  const deleteEntry = useCallback((id) => { setEntries((prev) => { const next = prev.filter((e) => e.id !== id); saveJSON("workout_entries", next); return next; }); }, []);
+  const addBw = useCallback((entry) => { setBwEntries((prev) => { const next = [...prev, entry].sort((a, b) => a.date.localeCompare(b.date)); saveJSON("bodyweight_entries", next); return next; }); }, []);
+  const deleteBw = useCallback((id) => { setBwEntries((prev) => { const next = prev.filter((e) => e.id !== id); saveJSON("bodyweight_entries", next); return next; }); }, []);
+  const saveRoutines = useCallback((next) => { setRoutines(next); saveJSON("routines", next); }, []);
+  const saveWeekPlan = useCallback((next) => { setWeekPlan(next); saveJSON("week_plan", next); }, []);
+
+  const exMap = useMemo(() => Object.fromEntries(exercises.map((e) => [e.id, e])), [exercises]);
+
+  const TABS = [
+    { key: "log", label: "Log", icon: Dumbbell },
+    { key: "routines", label: "Routines", icon: ListChecks },
+    { key: "prshelf", label: "PR Shelf", icon: Trophy },
+    { key: "progress", label: "Progress", icon: TrendingUp },
+    { key: "volume", label: "Volume", icon: LayoutGrid },
+    { key: "bodyweight", label: "Bodyweight", icon: Scale },
+  ];
+
+  return (
+    <div style={{ background: COLORS.bg, color: COLORS.text, minHeight: "100vh", fontFamily: "'Inter', sans-serif" }}>
+      <div className="flex items-center justify-between" style={{ padding: "18px 20px 14px", borderBottom: `1px solid ${COLORS.line}`, position: "sticky", top: 0, background: COLORS.bg, zIndex: 10 }}>
+        <div className="flex items-center" style={{ gap: 10 }}>
+          <div style={{ width: 30, height: 30, borderRadius: 7, background: CATEGORY_COLORS.Push, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <Dumbbell size={16} color="#fff" style={{ strokeWidth: 2.5 }} />
+          </div>
+          <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: 26, letterSpacing: 1.5, lineHeight: 1 }}>IRON LOG</div>
+        </div>
+        <Segmented options={[{ value: "kg", label: "KG" }, { value: "lb", label: "LB" }]} value={unit} onChange={changeUnit} />
+      </div>
+
+      <div className="flex" style={{ padding: "12px 16px 0", gap: 6, borderBottom: `1px solid ${COLORS.line}`, overflowX: "auto", position: "sticky", top: 65, background: COLORS.bg, zIndex: 9 }}>
+        {TABS.map((t) => {
+          const active = tab === t.key; const Icon = t.icon;
+          return (
+            <button key={t.key} onClick={() => setTab(t.key)} className="flex items-center"
+              style={{ gap: 6, padding: "9px 14px", border: "none", background: "transparent", color: active ? COLORS.text : COLORS.textMuted,
+                borderBottom: active ? `2px solid ${CATEGORY_COLORS.Push}` : "2px solid transparent", fontFamily: "'IBM Plex Mono', monospace",
+                fontSize: 12.5, fontWeight: 600, letterSpacing: 0.6, cursor: "pointer", whiteSpace: "nowrap" }}>
+              <Icon size={14} />{t.label.toUpperCase()}
+            </button>
+          );
+        })}
+      </div>
+
+      <div style={{ padding: 20, maxWidth: 900, margin: "0 auto" }}>
+        {!loaded ? (
+          <div style={{ color: COLORS.textMuted, fontSize: 13, padding: 40, textAlign: "center" }}>Loading your log…</div>
+        ) : tab === "log" ? (
+          <LogTab exercises={exercises} entries={entries} exMap={exMap} unit={unit} addExercise={addExercise} addEntry={addEntry} deleteEntry={deleteEntry} routines={routines} weekPlan={weekPlan} setTab={setTab} />
+        ) : tab === "routines" ? (
+          <RoutinesTab exercises={exercises} exMap={exMap} routines={routines} saveRoutines={saveRoutines} weekPlan={weekPlan} saveWeekPlan={saveWeekPlan} />
+        ) : tab === "prshelf" ? (
+          <PRShelfTab exercises={exercises} entries={entries} unit={unit} />
+        ) : tab === "progress" ? (
+          <ProgressTab exercises={exercises} entries={entries} unit={unit} />
+        ) : tab === "volume" ? (
+          <VolumeTab exercises={exercises} entries={entries} exMap={exMap} unit={unit} />
+        ) : (
+          <BodyweightTab entries={bwEntries} unit={unit} addBw={addBw} deleteBw={deleteBw} />
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ================= LOG TAB =================
+function LogTab({ exercises, entries, exMap, unit, addExercise, addEntry, deleteEntry, routines, weekPlan, setTab }) {
+  const [exerciseId, setExerciseId] = useState(exercises[0]?.id || "");
+  const [weight, setWeight] = useState("");
+  const [reps, setReps] = useState("");
+  const [date, setDate] = useState(todayStr());
+  const [showAdd, setShowAdd] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [newCat, setNewCat] = useState("Push");
+
+  useEffect(() => { if (!exerciseId && exercises.length) setExerciseId(exercises[0].id); }, [exercises, exerciseId]);
+
+  const weightNum = parseFloat(weight);
+  const repsNum = parseInt(reps, 10);
+  const canSubmit = exerciseId && weightNum > 0 && repsNum > 0;
+
+  const submit = () => {
+    if (!canSubmit) return;
+    const weightKg = unit === "kg" ? weightNum : lbToKg(weightNum);
+    addEntry({ id: genId(), exerciseId, date, weightKg, reps: repsNum });
+    setWeight(""); setReps("");
+  };
+  const handleAddExercise = () => {
+    if (!newName.trim()) return;
+    const id = addExercise(newName.trim(), newCat);
+    setExerciseId(id); setNewName(""); setShowAdd(false);
+  };
+
+  const todaysEntries = entries.filter((e) => e.date === date).sort((a, b) => (a.id < b.id ? 1 : -1));
+  const cat = exMap[exerciseId]?.category || "Other";
+  const planDayName = dayNameFromDateStr(date);
+  const planRoutineId = weekPlan[planDayName];
+  const planRoutine = routines.find((r) => r.id === planRoutineId);
+  const doneExerciseIds = new Set(todaysEntries.map((e) => e.exerciseId));
+
+  return (
+    <div className="flex flex-col" style={{ gap: 20 }}>
+      {planRoutine ? (
+        <div style={{ background: COLORS.surface, border: `1px solid ${COLORS.line}`, borderRadius: 10, padding: 16 }}>
+          <div className="flex items-center justify-between" style={{ marginBottom: 10 }}>
+            <div className="flex items-center" style={{ gap: 7 }}>
+              <ListChecks size={14} color={COLORS.textMuted} />
+              <span style={{ fontSize: 12, color: COLORS.textMuted, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: 0.5 }}>{planDayName.toUpperCase()}'S PLAN · {planRoutine.name.toUpperCase()}</span>
+            </div>
+            <span style={{ fontSize: 11, color: COLORS.textFaint }}>{[...doneExerciseIds].filter((id) => planRoutine.items.some((i) => i.exerciseId === id)).length}/{planRoutine.items.length} done</span>
+          </div>
+          <div className="flex flex-col" style={{ gap: 5 }}>
+            {planRoutine.items.map((item) => {
+              const ex = exMap[item.exerciseId]; const done = doneExerciseIds.has(item.exerciseId);
+              if (!ex) return null;
+              return (
+                <button key={item.exerciseId} onClick={() => setExerciseId(item.exerciseId)} className="flex items-center justify-between"
+                  style={{ width: "100%", background: exerciseId === item.exerciseId ? COLORS.surfaceRaised : "transparent",
+                    border: `1px solid ${exerciseId === item.exerciseId ? CATEGORY_COLORS[ex.category] : COLORS.line}`, borderRadius: 8, padding: "8px 10px", cursor: "pointer", textAlign: "left" }}>
+                  <div className="flex items-center" style={{ gap: 8 }}>
+                    {done ? <Check size={15} color={CATEGORY_COLORS.Legs} /> : <Circle size={13} color={COLORS.textFaint} />}
+                    <span style={{ fontSize: 13.5, color: done ? COLORS.textMuted : COLORS.text, textDecoration: done ? "line-through" : "none" }}>{ex.name}</span>
+                  </div>
+                  <span style={{ fontSize: 11, color: COLORS.textFaint, fontFamily: "'IBM Plex Mono', monospace" }}>{item.targetSets}×{item.targetReps}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ) : (
+        <button onClick={() => setTab("routines")} className="flex items-center justify-between"
+          style={{ width: "100%", background: COLORS.surface, border: `1px dashed ${COLORS.line}`, borderRadius: 10, padding: "12px 16px", cursor: "pointer" }}>
+          <span style={{ fontSize: 12.5, color: COLORS.textMuted }}>No routine planned for {planDayName}. Set up your week in Routines.</span>
+          <ChevronRight size={15} color={COLORS.textFaint} />
+        </button>
+      )}
+
+      <div className="flex" style={{ gap: 20, flexWrap: "wrap" }}>
+        <div style={{ flex: "1 1 280px", background: COLORS.surface, border: `1px solid ${COLORS.line}`, borderRadius: 10, padding: 16 }}>
+          <div className="flex items-center justify-between" style={{ marginBottom: 14 }}>
+            <span style={{ fontSize: 12, color: COLORS.textMuted, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: 0.5 }}>NEW SET</span>
+            <button onClick={() => setShowAdd((s) => !s)} className="flex items-center" style={{ gap: 4, background: "none", border: "none", color: CATEGORY_COLORS.Pull, fontSize: 12, cursor: "pointer" }}><Plus size={13} /> exercise</button>
+          </div>
+          {showAdd && (
+            <div style={{ marginBottom: 14, padding: 12, background: COLORS.surfaceRaised, borderRadius: 8, border: `1px solid ${COLORS.line}` }}>
+              <input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Exercise name" style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${COLORS.line}`, background: COLORS.surface, color: COLORS.text, fontSize: 13, marginBottom: 8 }} />
+              <div className="flex" style={{ gap: 6, flexWrap: "wrap" }}>
+                {CATEGORIES.map((c) => (
+                  <button key={c} onClick={() => setNewCat(c)} style={{ padding: "5px 10px", borderRadius: 6, fontSize: 11, cursor: "pointer", border: `1px solid ${newCat === c ? CATEGORY_COLORS[c] : COLORS.line}`, background: newCat === c ? CATEGORY_COLORS[c] + "22" : "transparent", color: newCat === c ? CATEGORY_COLORS[c] : COLORS.textMuted }}>{c}</button>
+                ))}
+              </div>
+              <button onClick={handleAddExercise} style={{ marginTop: 10, width: "100%", padding: "8px 0", borderRadius: 6, border: "none", background: COLORS.text, color: COLORS.bg, fontWeight: 600, fontSize: 12.5, cursor: "pointer" }}>Add exercise</button>
+            </div>
+          )}
+          <label style={{ fontSize: 11, color: COLORS.textMuted }}>Exercise</label>
+          <select value={exerciseId} onChange={(e) => setExerciseId(e.target.value)} style={{ width: "100%", padding: "9px 10px", marginTop: 5, marginBottom: 12, borderRadius: 7, border: `1px solid ${COLORS.line}`, background: COLORS.surfaceRaised, color: COLORS.text, fontSize: 13.5 }}>
+            {CATEGORIES.map((c) => (<optgroup key={c} label={c}>{exercises.filter((e) => e.category === c).map((e) => (<option key={e.id} value={e.id}>{e.name}</option>))}</optgroup>))}
+          </select>
+          <div className="flex" style={{ gap: 10, marginBottom: 12 }}>
+            <div style={{ flex: 1 }}>
+              <label style={{ fontSize: 11, color: COLORS.textMuted }}>Weight ({unit})</label>
+              <input type="number" inputMode="decimal" value={weight} onChange={(e) => setWeight(e.target.value)} placeholder="0" style={{ width: "100%", padding: "9px 10px", marginTop: 5, borderRadius: 7, border: `1px solid ${COLORS.line}`, background: COLORS.surfaceRaised, color: COLORS.text, fontSize: 15, fontFamily: "'IBM Plex Mono', monospace" }} />
+            </div>
+            <div style={{ flex: 1 }}>
+              <label style={{ fontSize: 11, color: COLORS.textMuted }}>Reps</label>
+              <input type="number" inputMode="numeric" value={reps} onChange={(e) => setReps(e.target.value)} placeholder="0" style={{ width: "100%", padding: "9px 10px", marginTop: 5, borderRadius: 7, border: `1px solid ${COLORS.line}`, background: COLORS.surfaceRaised, color: COLORS.text, fontSize: 15, fontFamily: "'IBM Plex Mono', monospace" }} />
+            </div>
+          </div>
+          <label style={{ fontSize: 11, color: COLORS.textMuted }}>Date</label>
+          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={{ width: "100%", padding: "8px 10px", marginTop: 5, marginBottom: 14, borderRadius: 7, border: `1px solid ${COLORS.line}`, background: COLORS.surfaceRaised, color: COLORS.text, fontSize: 13 }} />
+          <button onClick={submit} disabled={!canSubmit} style={{ width: "100%", padding: "11px 0", borderRadius: 8, border: "none", background: canSubmit ? CATEGORY_COLORS[cat] : COLORS.line, color: canSubmit ? "#fff" : COLORS.textFaint, fontWeight: 700, fontSize: 13.5, letterSpacing: 0.4, cursor: canSubmit ? "pointer" : "not-allowed" }}>LOG SET</button>
+        </div>
+
+        <div style={{ flex: "1 1 220px", background: COLORS.surface, border: `1px solid ${COLORS.line}`, borderRadius: 10, padding: 16, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
+          <span style={{ fontSize: 12, color: COLORS.textMuted, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: 0.5, marginBottom: 10, alignSelf: "flex-start" }}>BAR LOAD (per side)</span>
+          <PlateStack weight={weightNum > 0 ? weightNum : (unit === "kg" ? BAR_KG : BAR_LB)} unit={unit} />
+          <div style={{ marginTop: 8, fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, color: COLORS.textFaint, textAlign: "center" }}>bar = {unit === "kg" ? BAR_KG : BAR_LB}{unit}</div>
+        </div>
+      </div>
+
+      <div>
+        <div style={{ fontSize: 12, color: COLORS.textMuted, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: 0.5, marginBottom: 10 }}>SETS · {date === todayStr() ? "TODAY" : date}</div>
+        {todaysEntries.length === 0 ? (
+          <div style={{ color: COLORS.textFaint, fontSize: 13, padding: "10px 2px" }}>No sets logged for this date yet.</div>
+        ) : (
+          <div className="flex flex-col" style={{ gap: 6 }}>
+            {todaysEntries.map((e) => {
+              const ex = exMap[e.exerciseId]; const w = unit === "kg" ? e.weightKg : kgToLb(e.weightKg);
+              return (
+                <div key={e.id} className="flex items-center justify-between" style={{ background: COLORS.surface, border: `1px solid ${COLORS.line}`, borderRadius: 8, padding: "9px 12px" }}>
+                  <div className="flex items-center" style={{ gap: 10 }}>
+                    <div style={{ width: 7, height: 7, borderRadius: 99, background: CATEGORY_COLORS[ex?.category || "Other"] }} />
+                    <span style={{ fontSize: 13.5 }}>{ex?.name || "Unknown"}</span>
+                  </div>
+                  <div className="flex items-center" style={{ gap: 12 }}>
+                    <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, color: COLORS.textMuted }}>{fmt(w)}{unit} × {e.reps}</span>
+                    <button onClick={() => deleteEntry(e.id)} style={{ background: "none", border: "none", color: COLORS.textFaint, cursor: "pointer" }}><Trash2 size={14} /></button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ================= ROUTINES TAB =================
+function RoutinesTab({ exercises, exMap, routines, saveRoutines, weekPlan, saveWeekPlan }) {
+  const [view, setView] = useState("routines");
+  const [building, setBuilding] = useState(false);
+  const [name, setName] = useState("");
+  const [items, setItems] = useState([]);
+  const [pickExercise, setPickExercise] = useState(exercises[0]?.id || "");
+
+  const resetBuilder = () => { setName(""); setItems([]); setBuilding(false); };
+  const addItem = () => { if (!pickExercise || items.some((i) => i.exerciseId === pickExercise)) return; setItems((prev) => [...prev, { exerciseId: pickExercise, targetSets: 3, targetReps: 8 }]); };
+  const updateItem = (exerciseId, field, value) => setItems((prev) => prev.map((i) => (i.exerciseId === exerciseId ? { ...i, [field]: value } : i)));
+  const removeItem = (exerciseId) => setItems((prev) => prev.filter((i) => i.exerciseId !== exerciseId));
+  const saveRoutine = () => { if (!name.trim() || items.length === 0) return; saveRoutines([...routines, { id: genId(), name: name.trim(), items }]); resetBuilder(); };
+  const deleteRoutine = (id) => {
+    saveRoutines(routines.filter((r) => r.id !== id));
+    const nextPlan = { ...weekPlan };
+    for (const d of DAYS) if (nextPlan[d] === id) nextPlan[d] = "";
+    saveWeekPlan(nextPlan);
+  };
+
+  return (
+    <div className="flex flex-col" style={{ gap: 18 }}>
+      <Segmented options={[{ value: "routines", label: "My Routines" }, { value: "planner", label: "Week Planner" }]} value={view} onChange={setView} />
+      {view === "routines" ? (
+        <div className="flex flex-col" style={{ gap: 14 }}>
+          {routines.length === 0 && !building && <EmptyState icon={ListChecks} title="NO ROUTINES YET" body="Build a routine — like Push Day or Leg Day — and reuse it every week." />}
+          {routines.map((r) => (
+            <div key={r.id} style={{ background: COLORS.surface, border: `1px solid ${COLORS.line}`, borderRadius: 10, padding: 14 }}>
+              <div className="flex items-center justify-between" style={{ marginBottom: 8 }}>
+                <span style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: 18, letterSpacing: 0.5 }}>{r.name}</span>
+                <button onClick={() => deleteRoutine(r.id)} style={{ background: "none", border: "none", color: COLORS.textFaint, cursor: "pointer" }}><Trash2 size={14} /></button>
+              </div>
+              <div className="flex" style={{ gap: 6, flexWrap: "wrap" }}>
+                {r.items.map((it) => { const ex = exMap[it.exerciseId]; if (!ex) return null; return (
+                  <span key={it.exerciseId} style={{ fontSize: 11.5, padding: "4px 9px", borderRadius: 99, border: `1px solid ${CATEGORY_COLORS[ex.category]}55`, color: CATEGORY_COLORS[ex.category], fontFamily: "'IBM Plex Mono', monospace" }}>{ex.name} {it.targetSets}×{it.targetReps}</span>
+                ); })}
+              </div>
+            </div>
+          ))}
+          {building ? (
+            <div style={{ background: COLORS.surface, border: `1px solid ${COLORS.line}`, borderRadius: 10, padding: 16 }}>
+              <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Routine name — e.g. Push Day A" style={{ width: "100%", padding: "9px 10px", borderRadius: 7, border: `1px solid ${COLORS.line}`, background: COLORS.surfaceRaised, color: COLORS.text, fontSize: 14, marginBottom: 12 }} />
+              <div className="flex flex-col" style={{ gap: 6, marginBottom: 12 }}>
+                {items.map((it) => { const ex = exMap[it.exerciseId]; return (
+                  <div key={it.exerciseId} className="flex items-center" style={{ gap: 8, background: COLORS.surfaceRaised, borderRadius: 7, padding: "7px 9px" }}>
+                    <span style={{ flex: 1, fontSize: 13 }}>{ex?.name}</span>
+                    <input type="number" value={it.targetSets} onChange={(e) => updateItem(it.exerciseId, "targetSets", parseInt(e.target.value) || 0)} style={{ width: 40, padding: "4px 6px", borderRadius: 5, border: `1px solid ${COLORS.line}`, background: COLORS.surface, color: COLORS.text, fontSize: 12, fontFamily: "'IBM Plex Mono', monospace" }} />
+                    <span style={{ fontSize: 11, color: COLORS.textFaint }}>sets ×</span>
+                    <input type="number" value={it.targetReps} onChange={(e) => updateItem(it.exerciseId, "targetReps", parseInt(e.target.value) || 0)} style={{ width: 40, padding: "4px 6px", borderRadius: 5, border: `1px solid ${COLORS.line}`, background: COLORS.surface, color: COLORS.text, fontSize: 12, fontFamily: "'IBM Plex Mono', monospace" }} />
+                    <span style={{ fontSize: 11, color: COLORS.textFaint }}>reps</span>
+                    <button onClick={() => removeItem(it.exerciseId)} style={{ background: "none", border: "none", color: COLORS.textFaint, cursor: "pointer" }}><X size={13} /></button>
+                  </div>
+                ); })}
+              </div>
+              <div className="flex items-center" style={{ gap: 8, marginBottom: 14 }}>
+                <select value={pickExercise} onChange={(e) => setPickExercise(e.target.value)} style={{ flex: 1, padding: "8px 10px", borderRadius: 7, border: `1px solid ${COLORS.line}`, background: COLORS.surfaceRaised, color: COLORS.text, fontSize: 13 }}>
+                  {CATEGORIES.map((c) => (<optgroup key={c} label={c}>{exercises.filter((e) => e.category === c).map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}</optgroup>))}
+                </select>
+                <button onClick={addItem} className="flex items-center" style={{ gap: 4, padding: "8px 12px", borderRadius: 7, border: `1px solid ${COLORS.line}`, background: COLORS.surfaceRaised, color: COLORS.text, fontSize: 12.5, cursor: "pointer" }}><Plus size={13} /> Add</button>
+              </div>
+              <div className="flex" style={{ gap: 8 }}>
+                <button onClick={saveRoutine} disabled={!name.trim() || items.length === 0} style={{ flex: 1, padding: "10px 0", borderRadius: 8, border: "none", background: name.trim() && items.length ? COLORS.text : COLORS.line, color: name.trim() && items.length ? COLORS.bg : COLORS.textFaint, fontWeight: 700, fontSize: 13, cursor: name.trim() && items.length ? "pointer" : "not-allowed" }}>Save Routine</button>
+                <button onClick={resetBuilder} style={{ padding: "10px 16px", borderRadius: 8, border: `1px solid ${COLORS.line}`, background: "transparent", color: COLORS.textMuted, fontSize: 13, cursor: "pointer" }}>Cancel</button>
+              </div>
+            </div>
+          ) : (
+            <button onClick={() => setBuilding(true)} className="flex items-center justify-center" style={{ gap: 6, padding: "12px 0", borderRadius: 8, border: `1px dashed ${COLORS.line}`, background: "transparent", color: COLORS.textMuted, fontSize: 13, cursor: "pointer" }}><Plus size={14} /> New routine</button>
+          )}
+        </div>
+      ) : (
+        <div className="flex flex-col" style={{ gap: 8 }}>
+          {routines.length === 0 && <EmptyState icon={CalendarDays} title="BUILD A ROUTINE FIRST" body="Create at least one routine before planning your week." />}
+          {DAYS.map((d) => (
+            <div key={d} className="flex items-center justify-between" style={{ background: COLORS.surface, border: `1px solid ${COLORS.line}`, borderRadius: 8, padding: "10px 14px" }}>
+              <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, fontWeight: 600, width: 44 }}>{d}</span>
+              <select value={weekPlan[d] || ""} onChange={(e) => saveWeekPlan({ ...weekPlan, [d]: e.target.value })} style={{ flex: 1, marginLeft: 12, padding: "7px 10px", borderRadius: 7, border: `1px solid ${COLORS.line}`, background: COLORS.surfaceRaised, color: COLORS.text, fontSize: 13 }}>
+                <option value="">Rest day</option>
+                {routines.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+              </select>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ================= PR SHELF TAB =================
+function PRShelfTab({ exercises, entries, unit }) {
+  const prs = useMemo(() => {
+    const map = {};
+    for (const e of entries) {
+      const w = unit === "kg" ? e.weightKg : kgToLb(e.weightKg);
+      const cur = map[e.exerciseId];
+      if (!cur || w > cur.weight || (w === cur.weight && e.reps > cur.reps)) map[e.exerciseId] = { weight: w, reps: e.reps, date: e.date };
+    }
+    return map;
+  }, [entries, unit]);
+
+  const withPRs = exercises.filter((e) => prs[e.id]).sort((a, b) => prs[b.id].weight - prs[a.id].weight);
+  if (withPRs.length === 0) return <EmptyState icon={Trophy} title="THE SHELF IS EMPTY" body="Log some heavy sets and your personal records will land here." />;
+
+  return (
+    <div className="flex flex-col" style={{ gap: 18 }}>
+      <div style={{ fontSize: 12, color: COLORS.textMuted, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: 0.5 }}>HEAVIEST SINGLE SET PER EXERCISE</div>
+      {CATEGORIES.map((cat) => {
+        const inCat = withPRs.filter((e) => e.category === cat);
+        if (inCat.length === 0) return null;
+        return (
+          <div key={cat}>
+            <div className="flex items-center" style={{ gap: 7, marginBottom: 8 }}>
+              <div style={{ width: 8, height: 8, borderRadius: 99, background: CATEGORY_COLORS[cat] }} />
+              <span style={{ fontSize: 12.5, fontWeight: 600, color: CATEGORY_COLORS[cat] }}>{cat.toUpperCase()}</span>
+            </div>
+            <div className="flex" style={{ gap: 10, flexWrap: "wrap" }}>
+              {inCat.map((ex) => { const pr = prs[ex.id]; return (
+                <div key={ex.id} style={{ flex: "1 1 200px", background: COLORS.surface, border: `1px solid ${COLORS.line}`, borderTop: `3px solid ${CATEGORY_COLORS[cat]}`, borderRadius: 10, padding: 14 }}>
+                  <div className="flex items-center justify-between" style={{ marginBottom: 6 }}>
+                    <span style={{ fontSize: 13, color: COLORS.text }}>{ex.name}</span>
+                    <Trophy size={14} color={CATEGORY_COLORS[cat]} />
+                  </div>
+                  <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: 28, letterSpacing: 0.5 }}>{fmt(pr.weight)}{unit} <span style={{ fontSize: 15, color: COLORS.textMuted, fontFamily: "'IBM Plex Mono', monospace" }}>× {pr.reps}</span></div>
+                  <div style={{ fontSize: 11, color: COLORS.textFaint, marginTop: 2 }}>{pr.date}</div>
+                </div>
+              ); })}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ================= PROGRESS TAB =================
+function ProgressTab({ exercises, entries, unit }) {
+  const [exerciseId, setExerciseId] = useState(exercises[0]?.id || "");
+  useEffect(() => { if (!exerciseId && exercises.length) setExerciseId(exercises[0].id); }, [exercises, exerciseId]);
+  const exEntries = entries.filter((e) => e.exerciseId === exerciseId);
+
+  const byDate = useMemo(() => {
+    const map = {};
+    for (const e of exEntries) {
+      const w = unit === "kg" ? e.weightKg : kgToLb(e.weightKg);
+      const e1rm = epley1RM(w, e.reps);
+      if (!map[e.date] || e1rm > map[e.date].e1rm) map[e.date] = { date: e.date, topWeight: w, reps: e.reps, e1rm };
+    }
+    return Object.values(map).sort((a, b) => a.date.localeCompare(b.date));
+  }, [exEntries, unit]);
+
+  const pr = byDate.reduce((best, d) => (!best || d.e1rm > best.e1rm ? d : best), null);
+
+  return (
+    <div className="flex flex-col" style={{ gap: 16 }}>
+      <select value={exerciseId} onChange={(e) => setExerciseId(e.target.value)} style={{ padding: "9px 10px", borderRadius: 7, border: `1px solid ${COLORS.line}`, background: COLORS.surfaceRaised, color: COLORS.text, fontSize: 13.5, maxWidth: 320 }}>
+        {CATEGORIES.map((c) => (<optgroup key={c} label={c}>{exercises.filter((e) => e.category === c).map((e) => (<option key={e.id} value={e.id}>{e.name}</option>))}</optgroup>))}
+      </select>
+      {byDate.length === 0 ? (
+        <EmptyState icon={TrendingUp} title="NO DATA YET" body="Log a few sets for this exercise on the Log tab and your progress curve will show up here." />
+      ) : (
+        <>
+          {pr && (
+            <div className="flex" style={{ gap: 12, flexWrap: "wrap" }}>
+              <StatCard label="EST. 1RM PR" value={`${fmt(pr.e1rm)}${unit}`} sub={pr.date} color={CATEGORY_COLORS.Push} />
+              <StatCard label="TOP SET WEIGHT" value={`${fmt(pr.topWeight)}${unit} × ${pr.reps}`} sub="on PR day" color={CATEGORY_COLORS.Pull} />
+              <StatCard label="SESSIONS LOGGED" value={byDate.length} sub="total dates" color={CATEGORY_COLORS.Legs} />
+            </div>
+          )}
+          <div style={{ background: COLORS.surface, border: `1px solid ${COLORS.line}`, borderRadius: 10, padding: "16px 8px 8px" }}>
+            <ChartLegend items={[{ label: "Est. 1RM", color: CATEGORY_COLORS.Push }, { label: "Top set", color: CATEGORY_COLORS.Pull, dashed: true }]} />
+            <SimpleLineChart data={byDate} xKey="date" unit={unit} lines={[{ dataKey: "e1rm", color: CATEGORY_COLORS.Push, label: "Est. 1RM" }, { dataKey: "topWeight", color: CATEGORY_COLORS.Pull, label: "Top set", dashed: true }]} />
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ================= VOLUME TAB =================
+function VolumeTab({ exercises, entries, exMap, unit }) {
+  const weeklyData = useMemo(() => {
+    const weekMap = {};
+    for (const e of entries) {
+      const ex = exMap[e.exerciseId]; const cat = ex?.category || "Other";
+      const w = unit === "kg" ? e.weightKg : kgToLb(e.weightKg);
+      const vol = w * e.reps; const wk = isoWeekKey(e.date);
+      if (!weekMap[wk]) weekMap[wk] = { week: wk };
+      weekMap[wk][cat] = (weekMap[wk][cat] || 0) + vol;
+    }
+    return Object.values(weekMap).sort((a, b) => a.week.localeCompare(b.week)).slice(-12);
+  }, [entries, exMap, unit]);
+
+  const totalThisWeek = useMemo(() => {
+    const wk = isoWeekKey(todayStr()); const row = weeklyData.find((d) => d.week === wk);
+    if (!row) return 0;
+    return CATEGORIES.reduce((s, c) => s + (row[c] || 0), 0);
+  }, [weeklyData]);
+
+  const categoryTotals = useMemo(() => {
+    const totals = {};
+    for (const e of entries) {
+      const ex = exMap[e.exerciseId]; const cat = ex?.category || "Other";
+      const w = unit === "kg" ? e.weightKg : kgToLb(e.weightKg);
+      totals[cat] = (totals[cat] || 0) + w * e.reps;
+    }
+    return totals;
+  }, [entries, exMap, unit]);
+
+  const grandTotal = Object.values(categoryTotals).reduce((a, b) => a + b, 0);
+  if (entries.length === 0) return <EmptyState icon={LayoutGrid} title="NO VOLUME YET" body="Once you log sets, weekly volume grouped by muscle category will show up here." />;
+
+  return (
+    <div className="flex flex-col" style={{ gap: 16 }}>
+      <div className="flex" style={{ gap: 12, flexWrap: "wrap" }}>
+        <StatCard label="THIS WEEK'S VOLUME" value={`${Math.round(totalThisWeek).toLocaleString()}${unit}`} sub={isoWeekKey(todayStr())} color={CATEGORY_COLORS.Push} />
+        <StatCard label="ALL-TIME VOLUME" value={`${Math.round(grandTotal).toLocaleString()}${unit}`} sub={`${entries.length} sets logged`} color={CATEGORY_COLORS.Pull} />
+      </div>
+      <div style={{ background: COLORS.surface, border: `1px solid ${COLORS.line}`, borderRadius: 10, padding: "16px 8px 8px" }}>
+        <div style={{ fontSize: 12, color: COLORS.textMuted, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: 0.5, padding: "0 12px 6px" }}>VOLUME BY WEEK · BY CATEGORY</div>
+        <ChartLegend items={CATEGORIES.filter((c) => categoryTotals[c]).map((c) => ({ label: c, color: CATEGORY_COLORS[c] }))} />
+        <SimpleStackedBarChart data={weeklyData} xKey="week" unit={unit} series={CATEGORIES.map((c) => ({ dataKey: c, color: CATEGORY_COLORS[c], label: c }))} />
+      </div>
+      <div className="flex" style={{ gap: 10, flexWrap: "wrap" }}>
+        {CATEGORIES.filter((c) => categoryTotals[c]).map((c) => {
+          const pct = grandTotal ? (categoryTotals[c] / grandTotal) * 100 : 0;
+          return (
+            <div key={c} style={{ flex: "1 1 140px", background: COLORS.surface, border: `1px solid ${COLORS.line}`, borderRadius: 10, padding: 12 }}>
+              <div className="flex items-center justify-between" style={{ marginBottom: 6 }}>
+                <span style={{ fontSize: 12, fontWeight: 600, color: CATEGORY_COLORS[c] }}>{c}</span>
+                <span style={{ fontSize: 11, color: COLORS.textFaint }}>{fmt(pct)}%</span>
+              </div>
+              <div style={{ height: 5, background: COLORS.surfaceRaised, borderRadius: 3, overflow: "hidden" }}>
+                <div style={{ width: `${pct}%`, height: "100%", background: CATEGORY_COLORS[c] }} />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ================= BODYWEIGHT TAB =================
+function BodyweightTab({ entries, unit, addBw, deleteBw }) {
+  const [weight, setWeight] = useState("");
+  const [date, setDate] = useState(todayStr());
+  const submit = () => {
+    const w = parseFloat(weight); if (!(w > 0)) return;
+    const weightKg = unit === "kg" ? w : lbToKg(w);
+    addBw({ id: genId(), date, weightKg }); setWeight("");
+  };
+  const data = entries.map((e) => ({ date: e.date, id: e.id, weight: unit === "kg" ? e.weightKg : kgToLb(e.weightKg) }));
+  const latest = data[data.length - 1]; const first = data[0];
+  const change = latest && first ? latest.weight - first.weight : 0;
+
+  return (
+    <div className="flex flex-col" style={{ gap: 16 }}>
+      <div className="flex" style={{ gap: 20, flexWrap: "wrap" }}>
+        <div style={{ flex: "1 1 240px", background: COLORS.surface, border: `1px solid ${COLORS.line}`, borderRadius: 10, padding: 16 }}>
+          <div style={{ fontSize: 12, color: COLORS.textMuted, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: 0.5, marginBottom: 12 }}>LOG BODYWEIGHT</div>
+          <div className="flex" style={{ gap: 10, marginBottom: 12 }}>
+            <div style={{ flex: 1 }}>
+              <label style={{ fontSize: 11, color: COLORS.textMuted }}>Weight ({unit})</label>
+              <input type="number" inputMode="decimal" value={weight} onChange={(e) => setWeight(e.target.value)} placeholder="0" style={{ width: "100%", padding: "9px 10px", marginTop: 5, borderRadius: 7, border: `1px solid ${COLORS.line}`, background: COLORS.surfaceRaised, color: COLORS.text, fontSize: 15, fontFamily: "'IBM Plex Mono', monospace" }} />
+            </div>
+            <div style={{ flex: 1 }}>
+              <label style={{ fontSize: 11, color: COLORS.textMuted }}>Date</label>
+              <input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={{ width: "100%", padding: "9px 10px", marginTop: 5, borderRadius: 7, border: `1px solid ${COLORS.line}`, background: COLORS.surfaceRaised, color: COLORS.text, fontSize: 13 }} />
+            </div>
+          </div>
+          <button onClick={submit} disabled={!(parseFloat(weight) > 0)} style={{ width: "100%", padding: "11px 0", borderRadius: 8, border: "none", background: parseFloat(weight) > 0 ? CATEGORY_COLORS.Legs : COLORS.line, color: parseFloat(weight) > 0 ? "#fff" : COLORS.textFaint, fontWeight: 700, fontSize: 13.5, cursor: parseFloat(weight) > 0 ? "pointer" : "not-allowed" }}>LOG WEIGHT</button>
+        </div>
+        {latest && (
+          <div className="flex" style={{ gap: 12, flex: "1 1 240px", flexWrap: "wrap" }}>
+            <StatCard label="LATEST" value={`${fmt(latest.weight)}${unit}`} sub={latest.date} color={CATEGORY_COLORS.Legs} />
+            <StatCard label="CHANGE" value={`${change >= 0 ? "+" : ""}${fmt(change)}${unit}`} sub={`since ${first.date}`} color={change >= 0 ? CATEGORY_COLORS.Push : CATEGORY_COLORS.Pull} />
+          </div>
+        )}
+      </div>
+      {data.length === 0 ? (
+        <EmptyState icon={Scale} title="NO ENTRIES YET" body="Log your bodyweight regularly to see your trend over time." />
+      ) : (
+        <div style={{ background: COLORS.surface, border: `1px solid ${COLORS.line}`, borderRadius: 10, padding: "16px 8px 8px" }}>
+          <SimpleLineChart data={data} xKey="date" unit={unit} lines={[{ dataKey: "weight", color: CATEGORY_COLORS.Legs, label: "Bodyweight" }]} />
+        </div>
+      )}
+      {data.length > 0 && (
+        <div className="flex flex-col" style={{ gap: 6 }}>
+          {[...data].reverse().slice(0, 8).map((d) => (
+            <div key={d.id} className="flex items-center justify-between" style={{ background: COLORS.surface, border: `1px solid ${COLORS.line}`, borderRadius: 8, padding: "8px 12px" }}>
+              <span style={{ fontSize: 13, color: COLORS.textMuted }}>{d.date}</span>
+              <div className="flex items-center" style={{ gap: 12 }}>
+                <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 13 }}>{fmt(d.weight)}{unit}</span>
+                <button onClick={() => deleteBw(d.id)} style={{ background: "none", border: "none", color: COLORS.textFaint, cursor: "pointer" }}><Trash2 size={14} /></button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById("root"));
+root.render(<GymTracker />);
+</script>
+
+<script>
+  if ("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost")) {
+    window.addEventListener("load", () => {
+      navigator.serviceWorker.register("sw.js").catch(() => {});
+    });
+  }
+</script>
+</body>
+</html>
