@@ -22,6 +22,8 @@
   input::placeholder { color: #5A5A5F; }
   ::-webkit-scrollbar { height: 6px; width: 6px; }
   ::-webkit-scrollbar-thumb { background: #38383D; border-radius: 3px; }
+  @keyframes ironSlideRight { from { transform: translateX(18px); opacity: 0.4; } to { transform: translateX(0); opacity: 1; } }
+  @keyframes ironSlideLeft { from { transform: translateX(-18px); opacity: 0.4; } to { transform: translateX(0); opacity: 1; } }
   .flex { display: flex; }
   .flex-1 { flex: 1 1 0%; }
   .flex-col { flex-direction: column; }
@@ -39,7 +41,7 @@
 <script crossorigin src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
 <script type="text/plain" id="app-source">
-const { useState, useEffect, useMemo, useCallback } = React;
+const { useState, useEffect, useMemo, useCallback, useRef } = React;
 
 // ================= ICONS (self-contained, no external icon library) =================
 function IconWrap({ size = 16, style, children }) {
@@ -532,6 +534,35 @@ function GymTracker() {
     { key: "nutrition", label: "Nutrition", icon: Flame },
   ];
 
+  const [slideDir, setSlideDir] = useState(1);
+  const goToTab = useCallback((key) => {
+    setTab((prevTab) => {
+      const fromIdx = TABS.findIndex((t) => t.key === prevTab);
+      const toIdx = TABS.findIndex((t) => t.key === key);
+      if (toIdx !== -1 && fromIdx !== -1) setSlideDir(toIdx >= fromIdx ? 1 : -1);
+      return key;
+    });
+  }, []);
+
+  const touchRef = useRef({ x: 0, y: 0, tracking: false });
+  const onTabTouchStart = (e) => {
+    const t = e.touches[0];
+    touchRef.current = { x: t.clientX, y: t.clientY, tracking: true };
+  };
+  const onTabTouchEnd = (e) => {
+    if (!touchRef.current.tracking) return;
+    touchRef.current.tracking = false;
+    const t = e.changedTouches[0];
+    const dx = t.clientX - touchRef.current.x;
+    const dy = t.clientY - touchRef.current.y;
+    const SWIPE_THRESHOLD = 55;
+    if (Math.abs(dx) < SWIPE_THRESHOLD || Math.abs(dx) < Math.abs(dy) * 1.2) return;
+    const idx = TABS.findIndex((t2) => t2.key === tab);
+    if (idx === -1) return;
+    if (dx < 0 && idx < TABS.length - 1) goToTab(TABS[idx + 1].key);
+    else if (dx > 0 && idx > 0) goToTab(TABS[idx - 1].key);
+  };
+
   return (
     <div style={{ background: COLORS.bg, color: COLORS.text, minHeight: "100vh", fontFamily: "'Inter', sans-serif" }}>
       <div className="flex items-center justify-between" style={{ padding: "18px 20px 14px", borderBottom: `1px solid ${COLORS.line}`, position: "sticky", top: 0, background: COLORS.bg, zIndex: 10 }}>
@@ -548,7 +579,7 @@ function GymTracker() {
         {TABS.map((t) => {
           const active = tab === t.key; const Icon = t.icon;
           return (
-            <button key={t.key} onClick={() => setTab(t.key)} className="flex items-center"
+            <button key={t.key} onClick={() => goToTab(t.key)} className="flex items-center"
               style={{ gap: 6, padding: "9px 14px", border: "none", background: "transparent", color: active ? COLORS.text : COLORS.textMuted,
                 borderBottom: active ? `2px solid ${CATEGORY_COLORS.Push}` : "2px solid transparent", fontFamily: "'IBM Plex Mono', monospace",
                 fontSize: 12.5, fontWeight: 600, letterSpacing: 0.6, cursor: "pointer", whiteSpace: "nowrap" }}>
@@ -558,11 +589,12 @@ function GymTracker() {
         })}
       </div>
 
-      <div style={{ padding: 20, maxWidth: 900, margin: "0 auto" }}>
+      <div onTouchStart={onTabTouchStart} onTouchEnd={onTabTouchEnd} style={{ padding: 20, maxWidth: 900, margin: "0 auto", touchAction: "pan-y" }}>
+        <div key={tab} style={{ animation: `${slideDir === 1 ? "ironSlideRight" : "ironSlideLeft"} 180ms ease` }}>
         {!loaded ? (
           <div style={{ color: COLORS.textMuted, fontSize: 13, padding: 40, textAlign: "center" }}>Loading your log…</div>
         ) : tab === "log" ? (
-          <LogTab exercises={exercises} entries={entries} exMap={exMap} unit={unit} addExercise={addExercise} addEntry={addEntry} deleteEntry={deleteEntry} routines={routines} weekPlan={weekPlan} setTab={setTab} />
+          <LogTab exercises={exercises} entries={entries} exMap={exMap} unit={unit} addExercise={addExercise} addEntry={addEntry} deleteEntry={deleteEntry} routines={routines} weekPlan={weekPlan} setTab={goToTab} />
         ) : tab === "exercises" ? (
           <ExercisesTab exercises={exercises} entries={entries} addExercise={addExercise} updateExercise={updateExercise} deleteExercise={deleteExercise} />
         ) : tab === "routines" ? (
@@ -578,6 +610,7 @@ function GymTracker() {
         ) : (
           <NutritionTab bwEntries={bwEntries} unit={unit} foodEntries={foodEntries} addFood={addFood} deleteFood={deleteFood} profile={profile} saveProfile={saveProfile} />
         )}
+        </div>
       </div>
     </div>
   );
