@@ -152,6 +152,14 @@ function Flame({ size, color = "currentColor", style }) {
     </IconWrap>
   );
 }
+function Pencil({ size, color = "currentColor", style }) {
+  return (
+    <IconWrap size={size} style={style}>
+      <path d="M4 20l1-4 11-11 3 3-11 11-4 1z" stroke={color} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+      <line x1="14" y1="6" x2="18" y2="10" stroke={color} strokeWidth="2" strokeLinecap="round" />
+    </IconWrap>
+  );
+}
 
 // ================= TOKENS =================
 const COLORS = {
@@ -162,22 +170,64 @@ const CATEGORY_COLORS = { Push: "#D6483F", Pull: "#3573A5", Legs: "#DDA83A", Cor
 const CATEGORIES = Object.keys(CATEGORY_COLORS);
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
+// ================= MUSCLE TAXONOMY =================
+const MUSCLE_GROUPS = {
+  Push: ["Chest", "Shoulders", "Triceps"],
+  Pull: ["Back", "Biceps", "Traps"],
+  Legs: ["Quads", "Hamstrings", "Glutes", "Calves"],
+  Core: ["Abs", "Obliques"],
+  Other: ["Cardio", "Full Body", "Other"],
+};
+const MUSCLE_LIST = Object.entries(MUSCLE_GROUPS).flatMap(([cat, muscles]) => muscles.map((m) => ({ muscle: m, category: cat })));
+const MUSCLE_TO_CATEGORY = Object.fromEntries(MUSCLE_LIST.map((m) => [m.muscle, m.category]));
+
+function shadeHex(hex, percent) {
+  const num = parseInt(hex.replace("#", ""), 16);
+  let r = (num >> 16) + Math.round(255 * percent);
+  let g = ((num >> 8) & 0xff) + Math.round(255 * percent);
+  let b = (num & 0xff) + Math.round(255 * percent);
+  r = Math.min(255, Math.max(0, r)); g = Math.min(255, Math.max(0, g)); b = Math.min(255, Math.max(0, b));
+  return "#" + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
+}
+const MUSCLE_COLORS = {};
+Object.entries(MUSCLE_GROUPS).forEach(([cat, muscles]) => {
+  muscles.forEach((m, i) => {
+    const steps = muscles.length;
+    const factor = steps <= 1 ? 0 : (i / (steps - 1)) * 0.5 - 0.25;
+    MUSCLE_COLORS[m] = shadeHex(CATEGORY_COLORS[cat], factor);
+  });
+});
+
+function categoryOf(exercise) {
+  return MUSCLE_TO_CATEGORY[exercise?.muscle] || "Other";
+}
+function migrateExercises(list) {
+  let changed = false;
+  const next = list.map((e) => {
+    if (e.muscle && MUSCLE_TO_CATEGORY[e.muscle]) return e;
+    changed = true;
+    const cat = e.category && MUSCLE_GROUPS[e.category] ? e.category : "Other";
+    return { id: e.id, name: e.name, muscle: MUSCLE_GROUPS[cat][0] };
+  });
+  return { list: next, changed };
+}
+
 const DEFAULT_EXERCISES = [
-  { id: "bench-press", name: "Bench Press", category: "Push" },
-  { id: "overhead-press", name: "Overhead Press", category: "Push" },
-  { id: "incline-bench", name: "Incline Bench Press", category: "Push" },
-  { id: "dips", name: "Dips", category: "Push" },
-  { id: "deadlift", name: "Deadlift", category: "Pull" },
-  { id: "barbell-row", name: "Barbell Row", category: "Pull" },
-  { id: "pull-up", name: "Pull-up", category: "Pull" },
-  { id: "lat-pulldown", name: "Lat Pulldown", category: "Pull" },
-  { id: "squat", name: "Back Squat", category: "Legs" },
-  { id: "leg-press", name: "Leg Press", category: "Legs" },
-  { id: "romanian-deadlift", name: "Romanian Deadlift", category: "Legs" },
-  { id: "lunges", name: "Lunges", category: "Legs" },
-  { id: "plank", name: "Plank", category: "Core" },
-  { id: "ab-wheel", name: "Ab Wheel Rollout", category: "Core" },
-  { id: "hanging-leg-raise", name: "Hanging Leg Raise", category: "Core" },
+  { id: "bench-press", name: "Bench Press", muscle: "Chest" },
+  { id: "overhead-press", name: "Overhead Press", muscle: "Shoulders" },
+  { id: "incline-bench", name: "Incline Bench Press", muscle: "Chest" },
+  { id: "dips", name: "Dips", muscle: "Triceps" },
+  { id: "deadlift", name: "Deadlift", muscle: "Back" },
+  { id: "barbell-row", name: "Barbell Row", muscle: "Back" },
+  { id: "pull-up", name: "Pull-up", muscle: "Back" },
+  { id: "lat-pulldown", name: "Lat Pulldown", muscle: "Back" },
+  { id: "squat", name: "Back Squat", muscle: "Quads" },
+  { id: "leg-press", name: "Leg Press", muscle: "Quads" },
+  { id: "romanian-deadlift", name: "Romanian Deadlift", muscle: "Hamstrings" },
+  { id: "lunges", name: "Lunges", muscle: "Quads" },
+  { id: "plank", name: "Plank", muscle: "Abs" },
+  { id: "ab-wheel", name: "Ab Wheel Rollout", muscle: "Abs" },
+  { id: "hanging-leg-raise", name: "Hanging Leg Raise", muscle: "Abs" },
 ];
 
 const PLATES_KG = [25, 20, 15, 10, 5, 2.5, 1.25];
@@ -434,16 +484,30 @@ function GymTracker() {
         loadJSON("unit_pref", "kg"), loadJSON("routines", []), loadJSON("week_plan", {}),
         loadJSON("food_entries", []), loadJSON("profile", { heightCm: 175, age: 30, sex: "male", activityLevel: "moderate", goal: "maintain" }),
       ]);
-      setExercises(ex); setEntries(en); setBwEntries(bw); setUnit(u); setRoutines(ro); setWeekPlan(wp);
+      const migrated = migrateExercises(ex);
+      setExercises(migrated.list);
+      if (migrated.changed) saveJSON("exercises", migrated.list);
+      setEntries(en); setBwEntries(bw); setUnit(u); setRoutines(ro); setWeekPlan(wp);
       setFoodEntries(fe); setProfile(pr); setLoaded(true);
     })();
   }, []);
 
   const changeUnit = useCallback((u) => { setUnit(u); saveJSON("unit_pref", u); }, []);
-  const addExercise = useCallback((name, category) => {
-    const ex = { id: genId(), name, category };
+  const addExercise = useCallback((name, muscle) => {
+    const ex = { id: genId(), name, muscle };
     setExercises((prev) => { const next = [...prev, ex]; saveJSON("exercises", next); return next; });
     return ex.id;
+  }, []);
+  const updateExercise = useCallback((id, updates) => {
+    setExercises((prev) => { const next = prev.map((e) => (e.id === id ? { ...e, ...updates } : e)); saveJSON("exercises", next); return next; });
+  }, []);
+  const deleteExercise = useCallback((id) => {
+    setExercises((prev) => { const next = prev.filter((e) => e.id !== id); saveJSON("exercises", next); return next; });
+    setRoutines((prev) => {
+      const next = prev.map((r) => ({ ...r, items: r.items.filter((it) => it.exerciseId !== id) })).filter((r) => r.items.length > 0);
+      saveJSON("routines", next);
+      return next;
+    });
   }, []);
   const addEntry = useCallback((entry) => { setEntries((prev) => { const next = [...prev, entry]; saveJSON("workout_entries", next); return next; }); }, []);
   const deleteEntry = useCallback((id) => { setEntries((prev) => { const next = prev.filter((e) => e.id !== id); saveJSON("workout_entries", next); return next; }); }, []);
@@ -459,6 +523,7 @@ function GymTracker() {
 
   const TABS = [
     { key: "log", label: "Log", icon: Dumbbell },
+    { key: "exercises", label: "Exercises", icon: Pencil },
     { key: "routines", label: "Routines", icon: ListChecks },
     { key: "prshelf", label: "PR Shelf", icon: Trophy },
     { key: "progress", label: "Progress", icon: TrendingUp },
@@ -498,6 +563,8 @@ function GymTracker() {
           <div style={{ color: COLORS.textMuted, fontSize: 13, padding: 40, textAlign: "center" }}>Loading your log…</div>
         ) : tab === "log" ? (
           <LogTab exercises={exercises} entries={entries} exMap={exMap} unit={unit} addExercise={addExercise} addEntry={addEntry} deleteEntry={deleteEntry} routines={routines} weekPlan={weekPlan} setTab={setTab} />
+        ) : tab === "exercises" ? (
+          <ExercisesTab exercises={exercises} entries={entries} addExercise={addExercise} updateExercise={updateExercise} deleteExercise={deleteExercise} />
         ) : tab === "routines" ? (
           <RoutinesTab exercises={exercises} exMap={exMap} routines={routines} saveRoutines={saveRoutines} weekPlan={weekPlan} saveWeekPlan={saveWeekPlan} />
         ) : tab === "prshelf" ? (
@@ -524,7 +591,7 @@ function LogTab({ exercises, entries, exMap, unit, addExercise, addEntry, delete
   const [date, setDate] = useState(todayStr());
   const [showAdd, setShowAdd] = useState(false);
   const [newName, setNewName] = useState("");
-  const [newCat, setNewCat] = useState("Push");
+  const [newMuscle, setNewMuscle] = useState("Chest");
 
   useEffect(() => { if (!exerciseId && exercises.length) setExerciseId(exercises[0].id); }, [exercises, exerciseId]);
 
@@ -540,12 +607,12 @@ function LogTab({ exercises, entries, exMap, unit, addExercise, addEntry, delete
   };
   const handleAddExercise = () => {
     if (!newName.trim()) return;
-    const id = addExercise(newName.trim(), newCat);
+    const id = addExercise(newName.trim(), newMuscle);
     setExerciseId(id); setNewName(""); setShowAdd(false);
   };
 
   const todaysEntries = entries.filter((e) => e.date === date).sort((a, b) => (a.id < b.id ? 1 : -1));
-  const cat = exMap[exerciseId]?.category || "Other";
+  const cat = categoryOf(exMap[exerciseId]);
   const planDayName = dayNameFromDateStr(date);
   const planRoutineId = weekPlan[planDayName];
   const planRoutine = routines.find((r) => r.id === planRoutineId);
@@ -569,7 +636,7 @@ function LogTab({ exercises, entries, exMap, unit, addExercise, addEntry, delete
               return (
                 <button key={item.exerciseId} onClick={() => setExerciseId(item.exerciseId)} className="flex items-center justify-between"
                   style={{ width: "100%", background: exerciseId === item.exerciseId ? COLORS.surfaceRaised : "transparent",
-                    border: `1px solid ${exerciseId === item.exerciseId ? CATEGORY_COLORS[ex.category] : COLORS.line}`, borderRadius: 8, padding: "8px 10px", cursor: "pointer", textAlign: "left" }}>
+                    border: `1px solid ${exerciseId === item.exerciseId ? CATEGORY_COLORS[categoryOf(ex)] : COLORS.line}`, borderRadius: 8, padding: "8px 10px", cursor: "pointer", textAlign: "left" }}>
                   <div className="flex items-center" style={{ gap: 8 }}>
                     {done ? <Check size={15} color={CATEGORY_COLORS.Legs} /> : <Circle size={13} color={COLORS.textFaint} />}
                     <span style={{ fontSize: 13.5, color: done ? COLORS.textMuted : COLORS.text, textDecoration: done ? "line-through" : "none" }}>{ex.name}</span>
@@ -597,17 +664,16 @@ function LogTab({ exercises, entries, exMap, unit, addExercise, addEntry, delete
           {showAdd && (
             <div style={{ marginBottom: 14, padding: 12, background: COLORS.surfaceRaised, borderRadius: 8, border: `1px solid ${COLORS.line}` }}>
               <input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Exercise name" style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${COLORS.line}`, background: COLORS.surface, color: COLORS.text, fontSize: 13, marginBottom: 8 }} />
-              <div className="flex" style={{ gap: 6, flexWrap: "wrap" }}>
-                {CATEGORIES.map((c) => (
-                  <button key={c} onClick={() => setNewCat(c)} style={{ padding: "5px 10px", borderRadius: 6, fontSize: 11, cursor: "pointer", border: `1px solid ${newCat === c ? CATEGORY_COLORS[c] : COLORS.line}`, background: newCat === c ? CATEGORY_COLORS[c] + "22" : "transparent", color: newCat === c ? CATEGORY_COLORS[c] : COLORS.textMuted }}>{c}</button>
-                ))}
-              </div>
+              <label style={{ fontSize: 10.5, color: COLORS.textMuted }}>Main muscle worked</label>
+              <select value={newMuscle} onChange={(e) => setNewMuscle(e.target.value)} style={{ width: "100%", padding: "7px 9px", marginTop: 4, borderRadius: 6, border: `1px solid ${COLORS.line}`, background: COLORS.surface, color: COLORS.text, fontSize: 12.5 }}>
+                {CATEGORIES.map((c) => (<optgroup key={c} label={c}>{MUSCLE_GROUPS[c].map((m) => <option key={m} value={m}>{m}</option>)}</optgroup>))}
+              </select>
               <button onClick={handleAddExercise} style={{ marginTop: 10, width: "100%", padding: "8px 0", borderRadius: 6, border: "none", background: COLORS.text, color: COLORS.bg, fontWeight: 600, fontSize: 12.5, cursor: "pointer" }}>Add exercise</button>
             </div>
           )}
           <label style={{ fontSize: 11, color: COLORS.textMuted }}>Exercise</label>
           <select value={exerciseId} onChange={(e) => setExerciseId(e.target.value)} style={{ width: "100%", padding: "9px 10px", marginTop: 5, marginBottom: 12, borderRadius: 7, border: `1px solid ${COLORS.line}`, background: COLORS.surfaceRaised, color: COLORS.text, fontSize: 13.5 }}>
-            {CATEGORIES.map((c) => (<optgroup key={c} label={c}>{exercises.filter((e) => e.category === c).map((e) => (<option key={e.id} value={e.id}>{e.name}</option>))}</optgroup>))}
+            {CATEGORIES.map((c) => (<optgroup key={c} label={c}>{exercises.filter((e) => categoryOf(e) === c).map((e) => (<option key={e.id} value={e.id}>{e.name} · {e.muscle}</option>))}</optgroup>))}
           </select>
           <div className="flex" style={{ gap: 10, marginBottom: 12 }}>
             <div style={{ flex: 1 }}>
@@ -642,7 +708,7 @@ function LogTab({ exercises, entries, exMap, unit, addExercise, addEntry, delete
               return (
                 <div key={e.id} className="flex items-center justify-between" style={{ background: COLORS.surface, border: `1px solid ${COLORS.line}`, borderRadius: 8, padding: "9px 12px" }}>
                   <div className="flex items-center" style={{ gap: 10 }}>
-                    <div style={{ width: 7, height: 7, borderRadius: 99, background: CATEGORY_COLORS[ex?.category || "Other"] }} />
+                    <div style={{ width: 7, height: 7, borderRadius: 99, background: CATEGORY_COLORS[categoryOf(ex)] }} />
                     <span style={{ fontSize: 13.5 }}>{ex?.name || "Unknown"}</span>
                   </div>
                   <div className="flex items-center" style={{ gap: 12 }}>
@@ -693,7 +759,7 @@ function RoutinesTab({ exercises, exMap, routines, saveRoutines, weekPlan, saveW
               </div>
               <div className="flex" style={{ gap: 6, flexWrap: "wrap" }}>
                 {r.items.map((it) => { const ex = exMap[it.exerciseId]; if (!ex) return null; return (
-                  <span key={it.exerciseId} style={{ fontSize: 11.5, padding: "4px 9px", borderRadius: 99, border: `1px solid ${CATEGORY_COLORS[ex.category]}55`, color: CATEGORY_COLORS[ex.category], fontFamily: "'IBM Plex Mono', monospace" }}>{ex.name} {it.targetSets}×{it.targetReps}</span>
+                  <span key={it.exerciseId} style={{ fontSize: 11.5, padding: "4px 9px", borderRadius: 99, border: `1px solid ${CATEGORY_COLORS[categoryOf(ex)]}55`, color: CATEGORY_COLORS[categoryOf(ex)], fontFamily: "'IBM Plex Mono', monospace" }}>{ex.name} {it.targetSets}×{it.targetReps}</span>
                 ); })}
               </div>
             </div>
@@ -715,7 +781,7 @@ function RoutinesTab({ exercises, exMap, routines, saveRoutines, weekPlan, saveW
               </div>
               <div className="flex items-center" style={{ gap: 8, marginBottom: 14 }}>
                 <select value={pickExercise} onChange={(e) => setPickExercise(e.target.value)} style={{ flex: 1, padding: "8px 10px", borderRadius: 7, border: `1px solid ${COLORS.line}`, background: COLORS.surfaceRaised, color: COLORS.text, fontSize: 13 }}>
-                  {CATEGORIES.map((c) => (<optgroup key={c} label={c}>{exercises.filter((e) => e.category === c).map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}</optgroup>))}
+                  {CATEGORIES.map((c) => (<optgroup key={c} label={c}>{exercises.filter((e) => categoryOf(e) === c).map((e) => <option key={e.id} value={e.id}>{e.name} · {e.muscle}</option>)}</optgroup>))}
                 </select>
                 <button onClick={addItem} className="flex items-center" style={{ gap: 4, padding: "8px 12px", borderRadius: 7, border: `1px solid ${COLORS.line}`, background: COLORS.surfaceRaised, color: COLORS.text, fontSize: 12.5, cursor: "pointer" }}><Plus size={13} /> Add</button>
               </div>
@@ -765,7 +831,7 @@ function PRShelfTab({ exercises, entries, unit }) {
     <div className="flex flex-col" style={{ gap: 18 }}>
       <div style={{ fontSize: 12, color: COLORS.textMuted, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: 0.5 }}>HEAVIEST SINGLE SET PER EXERCISE</div>
       {CATEGORIES.map((cat) => {
-        const inCat = withPRs.filter((e) => e.category === cat);
+        const inCat = withPRs.filter((e) => categoryOf(e) === cat);
         if (inCat.length === 0) return null;
         return (
           <div key={cat}>
@@ -813,7 +879,7 @@ function ProgressTab({ exercises, entries, unit }) {
   return (
     <div className="flex flex-col" style={{ gap: 16 }}>
       <select value={exerciseId} onChange={(e) => setExerciseId(e.target.value)} style={{ padding: "9px 10px", borderRadius: 7, border: `1px solid ${COLORS.line}`, background: COLORS.surfaceRaised, color: COLORS.text, fontSize: 13.5, maxWidth: 320 }}>
-        {CATEGORIES.map((c) => (<optgroup key={c} label={c}>{exercises.filter((e) => e.category === c).map((e) => (<option key={e.id} value={e.id}>{e.name}</option>))}</optgroup>))}
+        {CATEGORIES.map((c) => (<optgroup key={c} label={c}>{exercises.filter((e) => categoryOf(e) === c).map((e) => (<option key={e.id} value={e.id}>{e.name} · {e.muscle}</option>))}</optgroup>))}
       </select>
       {byDate.length === 0 ? (
         <EmptyState icon={TrendingUp} title="NO DATA YET" body="Log a few sets for this exercise on the Log tab and your progress curve will show up here." />
@@ -838,14 +904,18 @@ function ProgressTab({ exercises, entries, unit }) {
 
 // ================= VOLUME TAB =================
 function VolumeTab({ exercises, entries, exMap, unit }) {
+  const [view, setView] = useState("category"); // category | muscle
+
   const weeklyData = useMemo(() => {
     const weekMap = {};
     for (const e of entries) {
-      const ex = exMap[e.exerciseId]; const cat = ex?.category || "Other";
+      const ex = exMap[e.exerciseId]; const cat = categoryOf(ex);
+      const musc = ex?.muscle || "Other";
       const w = unit === "kg" ? e.weightKg : kgToLb(e.weightKg);
       const vol = w * e.reps; const wk = isoWeekKey(e.date);
       if (!weekMap[wk]) weekMap[wk] = { week: wk };
       weekMap[wk][cat] = (weekMap[wk][cat] || 0) + vol;
+      weekMap[wk]["m:" + musc] = (weekMap[wk]["m:" + musc] || 0) + vol;
     }
     return Object.values(weekMap).sort((a, b) => a.week.localeCompare(b.week)).slice(-12);
   }, [entries, exMap, unit]);
@@ -859,15 +929,31 @@ function VolumeTab({ exercises, entries, exMap, unit }) {
   const categoryTotals = useMemo(() => {
     const totals = {};
     for (const e of entries) {
-      const ex = exMap[e.exerciseId]; const cat = ex?.category || "Other";
+      const ex = exMap[e.exerciseId]; const cat = categoryOf(ex);
       const w = unit === "kg" ? e.weightKg : kgToLb(e.weightKg);
       totals[cat] = (totals[cat] || 0) + w * e.reps;
     }
     return totals;
   }, [entries, exMap, unit]);
 
+  const muscleTotals = useMemo(() => {
+    const totals = {};
+    for (const e of entries) {
+      const ex = exMap[e.exerciseId]; const musc = ex?.muscle || "Other";
+      const w = unit === "kg" ? e.weightKg : kgToLb(e.weightKg);
+      totals[musc] = (totals[musc] || 0) + w * e.reps;
+    }
+    return totals;
+  }, [entries, exMap, unit]);
+
   const grandTotal = Object.values(categoryTotals).reduce((a, b) => a + b, 0);
-  if (entries.length === 0) return <EmptyState icon={LayoutGrid} title="NO VOLUME YET" body="Once you log sets, weekly volume grouped by muscle category will show up here." />;
+  const musclesPresent = MUSCLE_LIST.filter((m) => muscleTotals[m.muscle]);
+
+  if (entries.length === 0) return <EmptyState icon={LayoutGrid} title="NO VOLUME YET" body="Once you log sets, weekly volume grouped by muscle group will show up here." />;
+
+  const barSeries = view === "category"
+    ? CATEGORIES.filter((c) => categoryTotals[c]).map((c) => ({ dataKey: c, color: CATEGORY_COLORS[c], label: c }))
+    : musclesPresent.map((m) => ({ dataKey: "m:" + m.muscle, color: MUSCLE_COLORS[m.muscle], label: m.muscle }));
 
   return (
     <div className="flex flex-col" style={{ gap: 16 }}>
@@ -875,26 +961,71 @@ function VolumeTab({ exercises, entries, exMap, unit }) {
         <StatCard label="THIS WEEK'S VOLUME" value={`${Math.round(totalThisWeek).toLocaleString()}${unit}`} sub={isoWeekKey(todayStr())} color={CATEGORY_COLORS.Push} />
         <StatCard label="ALL-TIME VOLUME" value={`${Math.round(grandTotal).toLocaleString()}${unit}`} sub={`${entries.length} sets logged`} color={CATEGORY_COLORS.Pull} />
       </div>
+
+      <Segmented options={[{ value: "category", label: "By Category" }, { value: "muscle", label: "By Muscle" }]} value={view} onChange={setView} />
+
       <div style={{ background: COLORS.surface, border: `1px solid ${COLORS.line}`, borderRadius: 10, padding: "16px 8px 8px" }}>
-        <div style={{ fontSize: 12, color: COLORS.textMuted, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: 0.5, padding: "0 12px 6px" }}>VOLUME BY WEEK · BY CATEGORY</div>
-        <ChartLegend items={CATEGORIES.filter((c) => categoryTotals[c]).map((c) => ({ label: c, color: CATEGORY_COLORS[c] }))} />
-        <SimpleStackedBarChart data={weeklyData} xKey="week" unit={unit} series={CATEGORIES.map((c) => ({ dataKey: c, color: CATEGORY_COLORS[c], label: c }))} />
+        <div style={{ fontSize: 12, color: COLORS.textMuted, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: 0.5, padding: "0 12px 6px" }}>VOLUME BY WEEK · {view === "category" ? "BY CATEGORY" : "BY MUSCLE"}</div>
+        <ChartLegend items={barSeries.map((s) => ({ label: s.label, color: s.color }))} />
+        <SimpleStackedBarChart data={weeklyData} xKey="week" unit={unit} series={barSeries} />
       </div>
-      <div className="flex" style={{ gap: 10, flexWrap: "wrap" }}>
-        {CATEGORIES.filter((c) => categoryTotals[c]).map((c) => {
-          const pct = grandTotal ? (categoryTotals[c] / grandTotal) * 100 : 0;
-          return (
-            <div key={c} style={{ flex: "1 1 140px", background: COLORS.surface, border: `1px solid ${COLORS.line}`, borderRadius: 10, padding: 12 }}>
-              <div className="flex items-center justify-between" style={{ marginBottom: 6 }}>
-                <span style={{ fontSize: 12, fontWeight: 600, color: CATEGORY_COLORS[c] }}>{c}</span>
-                <span style={{ fontSize: 11, color: COLORS.textFaint }}>{fmt(pct)}%</span>
-              </div>
-              <div style={{ height: 5, background: COLORS.surfaceRaised, borderRadius: 3, overflow: "hidden" }}>
-                <div style={{ width: `${pct}%`, height: "100%", background: CATEGORY_COLORS[c] }} />
-              </div>
-            </div>
-          );
-        })}
+
+      <div>
+        <div style={{ fontSize: 12, color: COLORS.textMuted, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: 0.5, marginBottom: 10 }}>
+          ALL-TIME SHARE {view === "category" ? "BY CATEGORY" : "BY MUSCLE"}
+        </div>
+        {view === "category" ? (
+          <div className="flex" style={{ gap: 10, flexWrap: "wrap" }}>
+            {CATEGORIES.filter((c) => categoryTotals[c]).map((c) => {
+              const pct = grandTotal ? (categoryTotals[c] / grandTotal) * 100 : 0;
+              return (
+                <div key={c} style={{ flex: "1 1 140px", background: COLORS.surface, border: `1px solid ${COLORS.line}`, borderRadius: 10, padding: 12 }}>
+                  <div className="flex items-center justify-between" style={{ marginBottom: 6 }}>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: CATEGORY_COLORS[c] }}>{c}</span>
+                    <span style={{ fontSize: 11, color: COLORS.textFaint }}>{fmt(pct)}% · {Math.round(categoryTotals[c]).toLocaleString()}{unit}</span>
+                  </div>
+                  <div style={{ height: 5, background: COLORS.surfaceRaised, borderRadius: 3, overflow: "hidden" }}>
+                    <div style={{ width: `${pct}%`, height: "100%", background: CATEGORY_COLORS[c] }} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="flex flex-col" style={{ gap: 16 }}>
+            {CATEGORIES.map((cat) => {
+              const muscles = musclesPresent.filter((m) => m.category === cat);
+              if (muscles.length === 0) return null;
+              const catTotal = categoryTotals[cat] || 0;
+              return (
+                <div key={cat}>
+                  <div className="flex items-center" style={{ gap: 7, marginBottom: 8 }}>
+                    <div style={{ width: 8, height: 8, borderRadius: 99, background: CATEGORY_COLORS[cat] }} />
+                    <span style={{ fontSize: 12.5, fontWeight: 600, color: CATEGORY_COLORS[cat] }}>{cat.toUpperCase()}</span>
+                    <span style={{ fontSize: 11, color: COLORS.textFaint }}>· {Math.round(catTotal).toLocaleString()}{unit} total</span>
+                  </div>
+                  <div className="flex" style={{ gap: 10, flexWrap: "wrap" }}>
+                    {muscles.map((m) => {
+                      const val = muscleTotals[m.muscle];
+                      const pct = catTotal ? (val / catTotal) * 100 : 0;
+                      return (
+                        <div key={m.muscle} style={{ flex: "1 1 140px", background: COLORS.surface, border: `1px solid ${COLORS.line}`, borderRadius: 10, padding: 12 }}>
+                          <div className="flex items-center justify-between" style={{ marginBottom: 6 }}>
+                            <span style={{ fontSize: 12, fontWeight: 600, color: MUSCLE_COLORS[m.muscle] }}>{m.muscle}</span>
+                            <span style={{ fontSize: 11, color: COLORS.textFaint }}>{fmt(pct)}%</span>
+                          </div>
+                          <div style={{ height: 5, background: COLORS.surfaceRaised, borderRadius: 3, overflow: "hidden" }}>
+                            <div style={{ width: `${pct}%`, height: "100%", background: MUSCLE_COLORS[m.muscle] }} />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -1158,6 +1289,119 @@ function NutritionTab({ bwEntries, unit, foodEntries, addFood, deleteFood, profi
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// ================= EXERCISES TAB =================
+function ExercisesTab({ exercises, entries, addExercise, updateExercise, deleteExercise }) {
+  const [name, setName] = useState("");
+  const [muscle, setMuscle] = useState("Chest");
+  const [editingId, setEditingId] = useState(null);
+  const [editName, setEditName] = useState("");
+  const [editMuscle, setEditMuscle] = useState("Chest");
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null);
+
+  const usageCount = useMemo(() => {
+    const counts = {};
+    for (const e of entries) counts[e.exerciseId] = (counts[e.exerciseId] || 0) + 1;
+    return counts;
+  }, [entries]);
+
+  const handleAdd = () => {
+    if (!name.trim()) return;
+    addExercise(name.trim(), muscle);
+    setName("");
+  };
+
+  const startEdit = (ex) => { setEditingId(ex.id); setEditName(ex.name); setEditMuscle(ex.muscle); setConfirmDeleteId(null); };
+  const cancelEdit = () => setEditingId(null);
+  const saveEdit = (id) => {
+    if (!editName.trim()) return;
+    updateExercise(id, { name: editName.trim(), muscle: editMuscle });
+    setEditingId(null);
+  };
+
+  return (
+    <div className="flex flex-col" style={{ gap: 18 }}>
+      <div style={{ background: COLORS.surface, border: `1px solid ${COLORS.line}`, borderRadius: 10, padding: 16 }}>
+        <div style={{ fontSize: 12, color: COLORS.textMuted, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: 0.5, marginBottom: 12 }}>ADD EXERCISE</div>
+        <div className="flex" style={{ gap: 8, flexWrap: "wrap" }}>
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Exercise name"
+            style={{ flex: "2 1 180px", padding: "9px 10px", borderRadius: 7, border: `1px solid ${COLORS.line}`, background: COLORS.surfaceRaised, color: COLORS.text, fontSize: 13.5 }} />
+          <select value={muscle} onChange={(e) => setMuscle(e.target.value)}
+            style={{ flex: "1 1 160px", padding: "9px 10px", borderRadius: 7, border: `1px solid ${COLORS.line}`, background: COLORS.surfaceRaised, color: COLORS.text, fontSize: 13 }}>
+            {CATEGORIES.map((c) => (<optgroup key={c} label={c}>{MUSCLE_GROUPS[c].map((m) => <option key={m} value={m}>{m}</option>)}</optgroup>))}
+          </select>
+          <button onClick={handleAdd} disabled={!name.trim()} className="flex items-center justify-center"
+            style={{ gap: 5, padding: "9px 16px", borderRadius: 7, border: "none", background: name.trim() ? COLORS.text : COLORS.line, color: name.trim() ? COLORS.bg : COLORS.textFaint, fontWeight: 700, fontSize: 12.5, cursor: name.trim() ? "pointer" : "not-allowed" }}>
+            <Plus size={13} /> Add
+          </button>
+        </div>
+      </div>
+
+      {CATEGORIES.map((cat) => {
+        const inCat = exercises.filter((e) => categoryOf(e) === cat);
+        if (inCat.length === 0) return null;
+        return (
+          <div key={cat}>
+            <div className="flex items-center" style={{ gap: 7, marginBottom: 8 }}>
+              <div style={{ width: 8, height: 8, borderRadius: 99, background: CATEGORY_COLORS[cat] }} />
+              <span style={{ fontSize: 12.5, fontWeight: 600, color: CATEGORY_COLORS[cat] }}>{cat.toUpperCase()}</span>
+            </div>
+            <div className="flex flex-col" style={{ gap: 6, marginBottom: 4 }}>
+              {inCat.map((ex) => {
+                const isEditing = editingId === ex.id;
+                const isConfirming = confirmDeleteId === ex.id;
+                const uses = usageCount[ex.id] || 0;
+                return (
+                  <div key={ex.id} style={{ background: COLORS.surface, border: `1px solid ${COLORS.line}`, borderRadius: 8, padding: "10px 12px" }}>
+                    {isEditing ? (
+                      <div className="flex flex-col" style={{ gap: 8 }}>
+                        <div className="flex" style={{ gap: 8, flexWrap: "wrap" }}>
+                          <input value={editName} onChange={(e) => setEditName(e.target.value)}
+                            style={{ flex: "2 1 140px", padding: "7px 9px", borderRadius: 6, border: `1px solid ${COLORS.line}`, background: COLORS.surfaceRaised, color: COLORS.text, fontSize: 13 }} />
+                          <select value={editMuscle} onChange={(e) => setEditMuscle(e.target.value)}
+                            style={{ flex: "1 1 140px", padding: "7px 9px", borderRadius: 6, border: `1px solid ${COLORS.line}`, background: COLORS.surfaceRaised, color: COLORS.text, fontSize: 12.5 }}>
+                            {CATEGORIES.map((c) => (<optgroup key={c} label={c}>{MUSCLE_GROUPS[c].map((m) => <option key={m} value={m}>{m}</option>)}</optgroup>))}
+                          </select>
+                        </div>
+                        <div className="flex" style={{ gap: 8 }}>
+                          <button onClick={() => saveEdit(ex.id)} style={{ flex: 1, padding: "7px 0", borderRadius: 6, border: "none", background: COLORS.text, color: COLORS.bg, fontWeight: 700, fontSize: 12, cursor: "pointer" }}>Save</button>
+                          <button onClick={cancelEdit} style={{ padding: "7px 14px", borderRadius: 6, border: `1px solid ${COLORS.line}`, background: "transparent", color: COLORS.textMuted, fontSize: 12, cursor: "pointer" }}>Cancel</button>
+                        </div>
+                      </div>
+                    ) : isConfirming ? (
+                      <div className="flex items-center justify-between" style={{ flexWrap: "wrap", gap: 8 }}>
+                        <span style={{ fontSize: 12.5, color: COLORS.textMuted }}>
+                          Delete "{ex.name}"?{uses > 0 ? ` ${uses} logged set${uses === 1 ? "" : "s"} will remain but show as unknown.` : ""}
+                        </span>
+                        <div className="flex" style={{ gap: 8 }}>
+                          <button onClick={() => { deleteExercise(ex.id); setConfirmDeleteId(null); }}
+                            style={{ padding: "6px 12px", borderRadius: 6, border: "none", background: CATEGORY_COLORS.Push, color: "#fff", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>Delete</button>
+                          <button onClick={() => setConfirmDeleteId(null)} style={{ padding: "6px 12px", borderRadius: 6, border: `1px solid ${COLORS.line}`, background: "transparent", color: COLORS.textMuted, fontSize: 12, cursor: "pointer" }}>Cancel</button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center" style={{ gap: 8 }}>
+                          <span style={{ fontSize: 13.5 }}>{ex.name}</span>
+                          <span style={{ fontSize: 10.5, padding: "2px 7px", borderRadius: 99, border: `1px solid ${MUSCLE_COLORS[ex.muscle] || COLORS.line}66`, color: MUSCLE_COLORS[ex.muscle] || COLORS.textFaint }}>{ex.muscle}</span>
+                          {uses > 0 && <span style={{ fontSize: 10.5, color: COLORS.textFaint }}>{uses} logged</span>}
+                        </div>
+                        <div className="flex items-center" style={{ gap: 10 }}>
+                          <button onClick={() => startEdit(ex)} style={{ background: "none", border: "none", color: COLORS.textFaint, cursor: "pointer" }}><Pencil size={14} /></button>
+                          <button onClick={() => setConfirmDeleteId(ex.id)} style={{ background: "none", border: "none", color: COLORS.textFaint, cursor: "pointer" }}><Trash2 size={14} /></button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
