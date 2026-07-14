@@ -535,7 +535,10 @@ function GymTracker() {
   ];
 
   const [slideDir, setSlideDir] = useState(1);
+  const justNavigatedByClickRef = useRef(false);
+  const currentPanelElRef = useRef(null);
   const goToTab = useCallback((key) => {
+    justNavigatedByClickRef.current = true;
     setTab((prevTab) => {
       const fromIdx = TABS.findIndex((t) => t.key === prevTab);
       const toIdx = TABS.findIndex((t) => t.key === key);
@@ -543,6 +546,18 @@ function GymTracker() {
       return key;
     });
   }, []);
+
+  // Only plays the tab-change slide when navigation happened via a tap (goToTab), never after a
+  // swipe commit — swipe already reused the same live-dragged DOM node, so no remount/replay here.
+  useEffect(() => {
+    if (justNavigatedByClickRef.current && currentPanelElRef.current) {
+      const el = currentPanelElRef.current;
+      el.style.animation = "none";
+      void el.offsetWidth; // force reflow so the browser registers the reset before re-adding
+      el.style.animation = `${slideDir === 1 ? "ironSlideRight" : "ironSlideLeft"} 180ms ease`;
+    }
+    justNavigatedByClickRef.current = false;
+  }, [tab]);
 
   const tabBtnRefs = useRef({});
   useEffect(() => {
@@ -561,12 +576,28 @@ function GymTracker() {
   const trackRef = useRef(null);
   const gestureRef = useRef({ startX: 0, startY: 0, active: false, locked: null, containerWidth: 0, dir: 0, lastDx: 0 });
   const [peekDir, setPeekDir] = useState(0);
-  const [suppressSlideAnim, setSuppressSlideAnim] = useState(false);
 
   const isPageZoomed = () => {
     const vv = window.visualViewport;
     return !!vv && vv.scale > 1.02; // small epsilon to avoid float rounding false-positives
   };
+
+  // touch-action is a static CSS property the browser reads at gesture start — "pan-y" (needed so our
+  // JS can own horizontal swipes normally) actively blocks the browser's own native horizontal panning
+  // while the user is pinch-zoomed. Track zoom state reactively and relax it to "auto" while zoomed.
+  const [isZoomed, setIsZoomed] = useState(false);
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const update = () => setIsZoomed(vv.scale > 1.02);
+    update();
+    vv.addEventListener("resize", update);
+    vv.addEventListener("scroll", update);
+    return () => {
+      vv.removeEventListener("resize", update);
+      vv.removeEventListener("scroll", update);
+    };
+  }, []);
 
   const applyDrag = (dx, g) => {
     const w = g.containerWidth || 1;
@@ -629,8 +660,8 @@ function GymTracker() {
     if (g.locked !== "h") return;
     const w = g.containerWidth || 1;
     const dist = Math.abs(g.lastDx || 0);
-    const COMMIT_THRESHOLD = 28;
-    const commit = dist > COMMIT_THRESHOLD;
+    const COMMIT_FRACTION = 0.4; // must pull the next tab at least 40% of the way across
+    const commit = dist > w * COMMIT_FRACTION;
     const dir = g.dir;
     const targetPx = commit ? (dir === 1 ? -w : 0) : (dir === 1 ? 0 : -w);
     if (trackRef.current) {
@@ -640,17 +671,13 @@ function GymTracker() {
     setTimeout(() => {
       if (commit) {
         const newKey = dir === 1 ? nextKey : prevKey;
-        if (newKey) {
-          setSuppressSlideAnim(true);
-          setTab(newKey);
-        }
+        if (newKey) setTab(newKey);
       }
       setPeekDir(0);
       if (trackRef.current) {
         trackRef.current.style.transition = "none";
         trackRef.current.style.transform = "translateX(0px)";
       }
-      setTimeout(() => setSuppressSlideAnim(false), 50);
     }, 230);
   }, [nextKey, prevKey]);
 
@@ -725,7 +752,7 @@ function GymTracker() {
 
       <div
         ref={swipeAreaRef}
-        style={{ overflow: "hidden", position: "relative", maxWidth: 900, margin: "0 auto", touchAction: "pan-y" }}
+        style={{ overflow: "hidden", position: "relative", maxWidth: 900, margin: "0 auto", touchAction: isZoomed ? "auto" : "pan-y" }}
       >
         {!loaded ? (
           <div style={{ padding: 20 }}>
@@ -733,17 +760,15 @@ function GymTracker() {
           </div>
         ) : (
           <div ref={trackRef} style={{ display: "flex", alignItems: "flex-start", willChange: "transform" }}>
-            {peekDir === -1 && prevKey && (
-              <div key="panel-prev" style={{ width: "100%", flexShrink: 0, padding: 20 }}>{renderTab(prevKey)}</div>
-            )}
-            <div key="panel-current" style={{ width: "100%", flexShrink: 0, padding: 20 }}>
-              <div key={tab} style={suppressSlideAnim ? undefined : { animation: `${slideDir === 1 ? "ironSlideRight" : "ironSlideLeft"} 180ms ease` }}>
-                {renderTab(tab)}
+            {(peekDir === -1 && prevKey ? [prevKey] : []).concat([tab]).concat(peekDir === 1 && nextKey ? [nextKey] : []).map((key) => (
+              <div
+                key={key}
+                ref={key === tab ? currentPanelElRef : null}
+                style={{ width: "100%", flexShrink: 0, padding: 20 }}
+              >
+                {renderTab(key)}
               </div>
-            </div>
-            {peekDir === 1 && nextKey && (
-              <div key="panel-next" style={{ width: "100%", flexShrink: 0, padding: 20 }}>{renderTab(nextKey)}</div>
-            )}
+            ))}
           </div>
         )}
       </div>
