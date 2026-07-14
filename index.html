@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5, viewport-fit=cover" />
 <title>Iron Log — Gym Tracker</title>
 <meta name="theme-color" content="#18181B" />
 <meta name="mobile-web-app-capable" content="yes" />
@@ -563,6 +563,11 @@ function GymTracker() {
   const [peekDir, setPeekDir] = useState(0);
   const [suppressSlideAnim, setSuppressSlideAnim] = useState(false);
 
+  const isPageZoomed = () => {
+    const vv = window.visualViewport;
+    return !!vv && vv.scale > 1.02; // small epsilon to avoid float rounding false-positives
+  };
+
   const applyDrag = (dx, g) => {
     const w = g.containerWidth || 1;
     const clamped = g.dir === 1 ? Math.max(dx, -w) : Math.min(dx, w);
@@ -574,18 +579,33 @@ function GymTracker() {
     g.lastDx = clamped;
   };
 
-  const onSwipeStart = (e) => {
+  const onSwipeStart = useCallback((e) => {
+    if (e.touches.length > 1 || isPageZoomed()) {
+      gestureRef.current.active = false;
+      return;
+    }
     const t = e.touches[0];
     gestureRef.current = {
       startX: t.clientX, startY: t.clientY, active: true, locked: null,
       containerWidth: swipeAreaRef.current ? swipeAreaRef.current.offsetWidth : 0,
       dir: 0, lastDx: 0,
     };
-  };
+  }, []);
 
-  const onSwipeMove = (e) => {
+  const onSwipeMove = useCallback((e) => {
     const g = gestureRef.current;
     if (!g.active) return;
+    if (e.touches.length > 1 || isPageZoomed()) {
+      // a second finger came down (pinch) or the page is zoomed — bail and let the browser handle panning
+      g.active = false;
+      g.locked = "v";
+      if (trackRef.current) {
+        trackRef.current.style.transition = "none";
+        trackRef.current.style.transform = "translateX(0px)";
+      }
+      setPeekDir(0);
+      return;
+    }
     const t = e.touches[0];
     const dx = t.clientX - g.startX;
     const dy = t.clientY - g.startY;
@@ -601,9 +621,9 @@ function GymTracker() {
     }
     if (g.locked !== "h") return;
     applyDrag(dx, g);
-  };
+  }, [nextKey, prevKey]);
 
-  const onSwipeEnd = () => {
+  const onSwipeEnd = useCallback(() => {
     const g = gestureRef.current;
     g.active = false;
     if (g.locked !== "h") return;
@@ -632,7 +652,24 @@ function GymTracker() {
       }
       setTimeout(() => setSuppressSlideAnim(false), 50);
     }, 230);
-  };
+  }, [nextKey, prevKey]);
+
+  // native listeners: React's synthetic touch events are registered passive at the root,
+  // which is unreliable for this kind of live-tracking drag across mobile browsers.
+  useEffect(() => {
+    const el = swipeAreaRef.current;
+    if (!el) return;
+    el.addEventListener("touchstart", onSwipeStart, { passive: true });
+    el.addEventListener("touchmove", onSwipeMove, { passive: true });
+    el.addEventListener("touchend", onSwipeEnd, { passive: true });
+    el.addEventListener("touchcancel", onSwipeEnd, { passive: true });
+    return () => {
+      el.removeEventListener("touchstart", onSwipeStart);
+      el.removeEventListener("touchmove", onSwipeMove);
+      el.removeEventListener("touchend", onSwipeEnd);
+      el.removeEventListener("touchcancel", onSwipeEnd);
+    };
+  }, [onSwipeStart, onSwipeMove, onSwipeEnd]);
 
   const renderTab = (key) => {
     if (key === "log") {
@@ -688,9 +725,6 @@ function GymTracker() {
 
       <div
         ref={swipeAreaRef}
-        onTouchStart={onSwipeStart}
-        onTouchMove={onSwipeMove}
-        onTouchEnd={onSwipeEnd}
         style={{ overflow: "hidden", position: "relative", maxWidth: 900, margin: "0 auto", touchAction: "pan-y" }}
       >
         {!loaded ? (
@@ -700,15 +734,15 @@ function GymTracker() {
         ) : (
           <div ref={trackRef} style={{ display: "flex", alignItems: "flex-start", willChange: "transform" }}>
             {peekDir === -1 && prevKey && (
-              <div style={{ width: "100%", flexShrink: 0, padding: 20 }}>{renderTab(prevKey)}</div>
+              <div key="panel-prev" style={{ width: "100%", flexShrink: 0, padding: 20 }}>{renderTab(prevKey)}</div>
             )}
-            <div style={{ width: "100%", flexShrink: 0, padding: 20 }}>
+            <div key="panel-current" style={{ width: "100%", flexShrink: 0, padding: 20 }}>
               <div key={tab} style={suppressSlideAnim ? undefined : { animation: `${slideDir === 1 ? "ironSlideRight" : "ironSlideLeft"} 180ms ease` }}>
                 {renderTab(tab)}
               </div>
             </div>
             {peekDir === 1 && nextKey && (
-              <div style={{ width: "100%", flexShrink: 0, padding: 20 }}>{renderTab(nextKey)}</div>
+              <div key="panel-next" style={{ width: "100%", flexShrink: 0, padding: 20 }}>{renderTab(nextKey)}</div>
             )}
           </div>
         )}
