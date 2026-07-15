@@ -87,6 +87,17 @@ function TrendingUp({ size, color = "currentColor", style }) {
     </IconWrap>
   );
 }
+function TrendingDown({ size, color = "currentColor", style }) {
+  return (
+    <IconWrap size={size} style={style}>
+      <polyline points="3,7 9,13 13,9 21,18" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      <polyline points="15,18 21,18 21,12" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </IconWrap>
+  );
+}
+function Minus({ size, color = "currentColor", style }) {
+  return <IconWrap size={size} style={style}><line x1="5" y1="12" x2="19" y2="12" stroke={color} strokeWidth="2" strokeLinecap="round" /></IconWrap>;
+}
 function LayoutGrid({ size, color = "currentColor", style }) {
   return (
     <IconWrap size={size} style={style}>
@@ -244,6 +255,43 @@ const BAR_KG = 20, BAR_LB = 45;
 function genId() { return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`; }
 function todayStr() { return new Date().toISOString().slice(0, 10); }
 function epley1RM(weight, reps) { return reps <= 1 ? weight : weight * (1 + reps / 30); }
+
+// ================= PROGRESSIVE OVERLOAD HELPERS =================
+function getLastSession(entries, exerciseId, beforeDate, unit) {
+  const prior = entries.filter((e) => e.exerciseId === exerciseId && e.date < beforeDate);
+  if (prior.length === 0) return null;
+  const lastDate = prior.reduce((max, e) => (e.date > max ? e.date : max), prior[0].date);
+  const sets = prior
+    .filter((e) => e.date === lastDate)
+    .map((e) => ({ weight: unit === "kg" ? e.weightKg : kgToLb(e.weightKg), reps: e.reps }));
+  const topE1rm = Math.max(...sets.map((s) => epley1RM(s.weight, s.reps)));
+  return { date: lastDate, sets, topE1rm };
+}
+
+function getSetBadge(entries, exerciseId, dateStr, weightDisplay, reps, unit) {
+  const prior = entries.filter((e) => e.exerciseId === exerciseId && e.date < dateStr);
+  if (prior.length === 0) return { type: "first" };
+  const e1rm = epley1RM(weightDisplay, reps);
+  const priorE1rms = prior.map((e) => epley1RM(unit === "kg" ? e.weightKg : kgToLb(e.weightKg), e.reps));
+  const allTimeBest = Math.max(...priorE1rms);
+  if (e1rm > allTimeBest * 1.001) return { type: "pr" };
+  const lastSession = getLastSession(entries, exerciseId, dateStr, unit);
+  if (!lastSession) return null;
+  if (e1rm > lastSession.topE1rm * 1.005) return { type: "up" };
+  if (e1rm >= lastSession.topE1rm * 0.995) return { type: "match" };
+  return null;
+}
+
+function computeTrendStatus(sessions) {
+  if (sessions.length < 2) return { status: "new", label: "Not enough sessions yet" };
+  const last = sessions[sessions.length - 1];
+  const prior = sessions.slice(Math.max(0, sessions.length - 4), sessions.length - 1);
+  const priorBest = Math.max(...prior.map((s) => s.e1rm));
+  const priorAvg = prior.reduce((s, p) => s + p.e1rm, 0) / prior.length;
+  if (last.e1rm > priorBest * 1.01) return { status: "progressing", label: "Progressing" };
+  if (last.e1rm < priorAvg * 0.97) return { status: "declining", label: "Stalling" };
+  return { status: "steady", label: "Holding steady" };
+}
 function kgToLb(kg) { return kg * 2.20462; }
 function lbToKg(lb) { return lb / 2.20462; }
 function fmt(n) { return Math.round(n * 10) / 10; }
@@ -884,6 +932,7 @@ function LogTab({ exercises, entries, exMap, unit, addExercise, addEntry, delete
   const planRoutineId = weekPlan[planDayName];
   const planRoutine = routines.find((r) => r.id === planRoutineId);
   const doneExerciseIds = new Set(todaysEntries.map((e) => e.exerciseId));
+  const lastSession = exerciseId ? getLastSession(entries, exerciseId, date, unit) : null;
 
   return (
     <div className="flex flex-col" style={{ gap: 20 }}>
@@ -942,6 +991,14 @@ function LogTab({ exercises, entries, exMap, unit, addExercise, addEntry, delete
           <select value={exerciseId} onChange={(e) => setExerciseId(e.target.value)} style={{ width: "100%", padding: "9px 10px", marginTop: 5, marginBottom: 12, borderRadius: 7, border: `1px solid ${COLORS.line}`, background: COLORS.surfaceRaised, color: COLORS.text, fontSize: 13.5 }}>
             {CATEGORIES.map((c) => (<optgroup key={c} label={c}>{exercises.filter((e) => categoryOf(e) === c).map((e) => (<option key={e.id} value={e.id}>{e.name} · {e.muscle}</option>))}</optgroup>))}
           </select>
+          {lastSession && (
+            <div style={{ marginBottom: 12, padding: "8px 10px", background: COLORS.surfaceRaised, borderRadius: 7, border: `1px solid ${COLORS.line}` }}>
+              <div style={{ fontSize: 10, color: COLORS.textFaint, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: 0.4, marginBottom: 3 }}>LAST TIME · {lastSession.date}</div>
+              <div style={{ fontSize: 12.5, color: COLORS.textMuted, fontFamily: "'IBM Plex Mono', monospace" }}>
+                {lastSession.sets.map((s, i) => `${fmt(s.weight)}${unit}×${s.reps}`).join("   ")}
+              </div>
+            </div>
+          )}
           <div className="flex" style={{ gap: 10, marginBottom: 12 }}>
             <div style={{ flex: 1 }}>
               <label style={{ fontSize: 11, color: COLORS.textMuted }}>Weight ({unit})</label>
@@ -972,11 +1029,23 @@ function LogTab({ exercises, entries, exMap, unit, addExercise, addEntry, delete
           <div className="flex flex-col" style={{ gap: 6 }}>
             {todaysEntries.map((e) => {
               const ex = exMap[e.exerciseId]; const w = unit === "kg" ? e.weightKg : kgToLb(e.weightKg);
+              const badge = getSetBadge(entries, e.exerciseId, e.date, w, e.reps, unit);
               return (
                 <div key={e.id} className="flex items-center justify-between" style={{ background: COLORS.surface, border: `1px solid ${COLORS.line}`, borderRadius: 8, padding: "9px 12px" }}>
                   <div className="flex items-center" style={{ gap: 10 }}>
                     <div style={{ width: 7, height: 7, borderRadius: 99, background: CATEGORY_COLORS[categoryOf(ex)] }} />
                     <span style={{ fontSize: 13.5 }}>{ex?.name || "Unknown"}</span>
+                    {badge?.type === "pr" && (
+                      <span className="flex items-center" style={{ gap: 3, fontSize: 10, fontWeight: 700, color: CATEGORY_COLORS.Legs, background: CATEGORY_COLORS.Legs + "22", padding: "2px 7px", borderRadius: 99 }}>
+                        <Trophy size={10} /> PR
+                      </span>
+                    )}
+                    {badge?.type === "up" && (
+                      <span style={{ fontSize: 10, fontWeight: 700, color: CATEGORY_COLORS.Core, background: CATEGORY_COLORS.Core + "22", padding: "2px 7px", borderRadius: 99 }}>▲ Improved</span>
+                    )}
+                    {badge?.type === "match" && (
+                      <span style={{ fontSize: 10, color: COLORS.textFaint, background: COLORS.surfaceRaised, padding: "2px 7px", borderRadius: 99 }}>= Matched</span>
+                    )}
                   </div>
                   <div className="flex items-center" style={{ gap: 12 }}>
                     <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, color: COLORS.textMuted }}>{fmt(w)}{unit} × {e.reps}</span>
@@ -1142,6 +1211,13 @@ function ProgressTab({ exercises, entries, unit }) {
   }, [exEntries, unit]);
 
   const pr = byDate.reduce((best, d) => (!best || d.e1rm > best.e1rm ? d : best), null);
+  const trend = useMemo(() => computeTrendStatus(byDate), [byDate]);
+  const TREND_STYLE = {
+    progressing: { icon: TrendingUp, color: CATEGORY_COLORS.Core },
+    steady: { icon: Minus, color: COLORS.textMuted },
+    declining: { icon: TrendingDown, color: CATEGORY_COLORS.Push },
+    new: { icon: Minus, color: COLORS.textFaint },
+  };
 
   return (
     <div className="flex flex-col" style={{ gap: 16 }}>
@@ -1152,6 +1228,15 @@ function ProgressTab({ exercises, entries, unit }) {
         <EmptyState icon={TrendingUp} title="NO DATA YET" body="Log a few sets for this exercise on the Log tab and your progress curve will show up here." />
       ) : (
         <>
+          {byDate.length >= 2 && (() => {
+            const t = TREND_STYLE[trend.status]; const TrendIcon = t.icon;
+            return (
+              <div className="flex items-center" style={{ gap: 6, alignSelf: "flex-start", padding: "6px 12px", borderRadius: 99, background: t.color + "1a", border: `1px solid ${t.color}55` }}>
+                <TrendIcon size={13} color={t.color} />
+                <span style={{ fontSize: 12, fontWeight: 600, color: t.color }}>{trend.label}</span>
+              </div>
+            );
+          })()}
           {pr && (
             <div className="flex" style={{ gap: 12, flexWrap: "wrap" }}>
               <StatCard label="EST. 1RM PR" value={`${fmt(pr.e1rm)}${unit}`} sub={pr.date} color={CATEGORY_COLORS.Push} />
