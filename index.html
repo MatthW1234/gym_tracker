@@ -147,6 +147,9 @@ function Circle({ size, color = "currentColor", style }) {
 function ChevronRight({ size, color = "currentColor", style }) {
   return <IconWrap size={size} style={style}><polyline points="9,6 15,12 9,18" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></IconWrap>;
 }
+function ChevronLeft({ size, color = "currentColor", style }) {
+  return <IconWrap size={size} style={style}><polyline points="15,6 9,12 15,18" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></IconWrap>;
+}
 function Flame({ size, color = "currentColor", style }) {
   return (
     <IconWrap size={size} style={style}>
@@ -251,6 +254,73 @@ function isoWeekKey(dateStr) {
   const yearStart = new Date(d.getFullYear(), 0, 1);
   const weekNo = Math.ceil(((d - yearStart) / 86400000 + 1) / 7);
   return `${d.getFullYear()}-W${String(weekNo).padStart(2, "0")}`;
+}
+
+// ================= DATE HELPERS (History tab) =================
+const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+const MONTH_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const DAY_NAMES_FULL = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+function ymd(d) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; }
+function parseYmd(s) { return new Date(s + "T00:00:00"); }
+function addDays(d, n) { const r = new Date(d); r.setDate(r.getDate() + n); return r; }
+function addMonths(d, n) { const r = new Date(d); r.setMonth(r.getMonth() + n); return r; }
+function addYears(d, n) { const r = new Date(d); r.setFullYear(r.getFullYear() + n); return r; }
+function startOfWeek(d) { return addDays(d, -((d.getDay() + 6) % 7)); } // Monday-based
+function fmtMonthYear(d) { return `${MONTH_NAMES[d.getMonth()]} ${d.getFullYear()}`; }
+function fmtDayFull(d) { return `${DAY_NAMES_FULL[d.getDay()]}, ${MONTH_NAMES[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`; }
+function fmtDateShort(d) { return `${MONTH_SHORT[d.getMonth()]} ${d.getDate()}`; }
+
+function getMonthGrid(year, monthIndex) {
+  const first = new Date(year, monthIndex, 1);
+  const daysInMonth = new Date(year, monthIndex + 1, 0).getDate();
+  const startOffset = (first.getDay() + 6) % 7;
+  const weeksNeeded = Math.ceil((startOffset + daysInMonth) / 7);
+  const weeks = [];
+  let cursor = addDays(first, -startOffset);
+  for (let w = 0; w < weeksNeeded; w++) {
+    const week = [];
+    for (let d = 0; d < 7; d++) { week.push(cursor); cursor = addDays(cursor, 1); }
+    weeks.push(week);
+  }
+  return weeks;
+}
+
+// Aggregates workout entries within [startDate, endDate] (inclusive) — date strings compare
+// correctly lexicographically since they're always YYYY-MM-DD.
+function aggregateEntriesInRange(entries, exMap, unit, startDate, endDate) {
+  const startStr = ymd(startDate), endStr = ymd(endDate);
+  let totalVolume = 0, totalReps = 0, totalSets = 0;
+  const sessionDays = new Set(); const byCategory = {}; const byMuscle = {};
+  for (const e of entries) {
+    if (e.date < startStr || e.date > endStr) continue;
+    const ex = exMap[e.exerciseId]; const cat = categoryOf(ex); const musc = ex?.muscle || "Other";
+    const w = unit === "kg" ? e.weightKg : kgToLb(e.weightKg); const vol = w * e.reps;
+    totalVolume += vol; totalReps += e.reps; totalSets += 1; sessionDays.add(e.date);
+    if (!byCategory[cat]) byCategory[cat] = { volume: 0, reps: 0, sets: 0 };
+    byCategory[cat].volume += vol; byCategory[cat].reps += e.reps; byCategory[cat].sets += 1;
+    if (!byMuscle[musc]) byMuscle[musc] = { volume: 0, reps: 0, sets: 0 };
+    byMuscle[musc].volume += vol; byMuscle[musc].reps += e.reps; byMuscle[musc].sets += 1;
+  }
+  return { totalVolume, totalReps, totalSets, sessionDays, byCategory, byMuscle };
+}
+
+function buildDayIndex(entries, exMap, unit) {
+  const map = {};
+  for (const e of entries) {
+    const ex = exMap[e.exerciseId]; const cat = categoryOf(ex); const musc = ex?.muscle || "Other";
+    const w = unit === "kg" ? e.weightKg : kgToLb(e.weightKg); const vol = w * e.reps;
+    if (!map[e.date]) map[e.date] = { totalVolume: 0, totalReps: 0, totalSets: 0, byCategory: {}, byMuscle: {}, byExercise: {} };
+    const d = map[e.date];
+    d.totalVolume += vol; d.totalReps += e.reps; d.totalSets += 1;
+    if (!d.byCategory[cat]) d.byCategory[cat] = { volume: 0, reps: 0, sets: 0 };
+    d.byCategory[cat].volume += vol; d.byCategory[cat].reps += e.reps; d.byCategory[cat].sets += 1;
+    if (!d.byMuscle[musc]) d.byMuscle[musc] = { volume: 0, reps: 0, sets: 0 };
+    d.byMuscle[musc].volume += vol; d.byMuscle[musc].reps += e.reps; d.byMuscle[musc].sets += 1;
+    if (!d.byExercise[e.exerciseId]) d.byExercise[e.exerciseId] = [];
+    d.byExercise[e.exerciseId].push({ weight: w, reps: e.reps, id: e.id });
+  }
+  return map;
 }
 function calcPlates(targetWeight, unit) {
   const bar = unit === "kg" ? BAR_KG : BAR_LB;
@@ -530,6 +600,7 @@ function GymTracker() {
     { key: "prshelf", label: "PR Shelf", icon: Trophy },
     { key: "progress", label: "Progress", icon: TrendingUp },
     { key: "volume", label: "Volume", icon: LayoutGrid },
+    { key: "history", label: "History", icon: CalendarDays },
     { key: "bodyweight", label: "Bodyweight", icon: Scale },
     { key: "nutrition", label: "Nutrition", icon: Flame },
   ];
@@ -716,6 +787,9 @@ function GymTracker() {
     }
     if (key === "volume") {
       return <VolumeTab exercises={exercises} entries={entries} exMap={exMap} unit={unit} />;
+    }
+    if (key === "history") {
+      return <HistoryTab exercises={exercises} entries={entries} exMap={exMap} bwEntries={bwEntries} unit={unit} />;
     }
     if (key === "bodyweight") {
       return <BodyweightTab entries={bwEntries} unit={unit} addBw={addBw} deleteBw={deleteBw} />;
@@ -1595,6 +1669,306 @@ function ExercisesTab({ exercises, entries, addExercise, updateExercise, deleteE
           </div>
         );
       })}
+    </div>
+  );
+}
+
+// ================= HISTORY TAB =================
+function HistoryTab({ exercises, entries, exMap, bwEntries, unit }) {
+  const [view, setView] = useState("calendar"); // calendar | week | month | year
+
+  return (
+    <div className="flex flex-col" style={{ gap: 18 }}>
+      <Segmented
+        options={[
+          { value: "calendar", label: "Calendar" },
+          { value: "week", label: "Week" },
+          { value: "month", label: "Month" },
+          { value: "year", label: "Year" },
+        ]}
+        value={view}
+        onChange={setView}
+      />
+      {view === "calendar" ? (
+        <CalendarView exercises={exercises} entries={entries} exMap={exMap} bwEntries={bwEntries} unit={unit} />
+      ) : (
+        <PeriodSummary key={view} period={view} entries={entries} exMap={exMap} bwEntries={bwEntries} unit={unit} />
+      )}
+    </div>
+  );
+}
+
+function CalendarView({ entries, exMap, bwEntries, unit }) {
+  const today = new Date();
+  const [monthRef, setMonthRef] = useState(new Date(today.getFullYear(), today.getMonth(), 1));
+  const [selectedDate, setSelectedDate] = useState(ymd(today));
+
+  const dayIndex = useMemo(() => buildDayIndex(entries, exMap, unit), [entries, exMap, unit]);
+  const bwByDate = useMemo(() => Object.fromEntries(bwEntries.map((e) => [e.date, e])), [bwEntries]);
+  const weeks = useMemo(() => getMonthGrid(monthRef.getFullYear(), monthRef.getMonth()), [monthRef]);
+  const monthIndex = monthRef.getMonth();
+  const todayStr2 = ymd(today);
+
+  const goPrevMonth = () => { setMonthRef((d) => addMonths(d, -1)); setSelectedDate(null); };
+  const goNextMonth = () => { setMonthRef((d) => addMonths(d, 1)); setSelectedDate(null); };
+  const goToday = () => { setMonthRef(new Date(today.getFullYear(), today.getMonth(), 1)); setSelectedDate(todayStr2); };
+
+  const selectedInfo = selectedDate ? dayIndex[selectedDate] : null;
+  const selectedBw = selectedDate ? bwByDate[selectedDate] : null;
+
+  const iconBtnStyle = { padding: 8, borderRadius: 8, border: `1px solid ${COLORS.line}`, background: COLORS.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" };
+
+  return (
+    <div className="flex flex-col" style={{ gap: 16 }}>
+      <div className="flex items-center justify-between">
+        <button onClick={goPrevMonth} style={iconBtnStyle}><ChevronLeft size={16} color={COLORS.textMuted} /></button>
+        <div className="flex items-center" style={{ gap: 10 }}>
+          <span style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: 20, letterSpacing: 0.5 }}>{fmtMonthYear(monthRef)}</span>
+          <button onClick={goToday} style={{ fontSize: 11, padding: "3px 9px", borderRadius: 99, border: `1px solid ${COLORS.line}`, background: COLORS.surfaceRaised, color: COLORS.textMuted, cursor: "pointer" }}>Today</button>
+        </div>
+        <button onClick={goNextMonth} style={iconBtnStyle}><ChevronRight size={16} color={COLORS.textMuted} /></button>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 4 }}>
+        {DAYS.map((d) => (
+          <div key={d} style={{ textAlign: "center", fontSize: 10, color: COLORS.textFaint, fontFamily: "'IBM Plex Mono', monospace" }}>{d.slice(0, 2).toUpperCase()}</div>
+        ))}
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 4 }}>
+        {weeks.flat().map((d, i) => {
+          const dateStr = ymd(d);
+          const inMonth = d.getMonth() === monthIndex;
+          const info = dayIndex[dateStr];
+          const hasBw = !!bwByDate[dateStr];
+          const isSelected = dateStr === selectedDate;
+          const isToday = dateStr === todayStr2;
+          const cats = info ? CATEGORIES.filter((c) => info.byCategory[c]) : [];
+          return (
+            <button key={i} onClick={() => setSelectedDate(dateStr)}
+              style={{
+                aspectRatio: "1", borderRadius: 8, border: isSelected ? `1.5px solid ${COLORS.text}` : `1px solid ${COLORS.line}`,
+                background: isSelected ? COLORS.surfaceRaised : COLORS.surface, opacity: inMonth ? 1 : 0.32,
+                cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 3, padding: 2,
+              }}>
+              <span style={{ fontSize: 12, fontFamily: "'IBM Plex Mono', monospace", color: isToday ? CATEGORY_COLORS.Push : COLORS.text, fontWeight: isToday ? 700 : 400 }}>{d.getDate()}</span>
+              <div className="flex items-center" style={{ gap: 2, height: 5 }}>
+                {cats.slice(0, 4).map((c) => <div key={c} style={{ width: 4, height: 4, borderRadius: 99, background: CATEGORY_COLORS[c] }} />)}
+                {hasBw && <div style={{ width: 4, height: 4, borderRadius: 99, background: COLORS.textFaint }} />}
+              </div>
+            </button>
+          );
+        })}
+      </div>
+
+      <div style={{ background: COLORS.surface, border: `1px solid ${COLORS.line}`, borderRadius: 10, padding: 16 }}>
+        {!selectedDate ? (
+          <EmptyState icon={CalendarDays} title="PICK A DATE" body="Tap any day above to see what you trained." />
+        ) : (
+          <>
+            <div style={{ fontSize: 12, color: COLORS.textMuted, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: 0.5, marginBottom: 12 }}>
+              {fmtDayFull(parseYmd(selectedDate)).toUpperCase()}
+            </div>
+            {!selectedInfo && !selectedBw ? (
+              <div style={{ color: COLORS.textFaint, fontSize: 13, padding: "8px 0" }}>No training logged on this day.</div>
+            ) : (
+              <div className="flex flex-col" style={{ gap: 16 }}>
+                {selectedInfo && (
+                  <>
+                    <div className="flex" style={{ gap: 10, flexWrap: "wrap" }}>
+                      <StatCard label="VOLUME" value={`${Math.round(selectedInfo.totalVolume).toLocaleString()}${unit}`} sub={`${selectedInfo.totalSets} sets`} color={CATEGORY_COLORS.Push} />
+                      <StatCard label="TOTAL REPS" value={selectedInfo.totalReps} sub="across all sets" color={CATEGORY_COLORS.Pull} />
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 11, color: COLORS.textMuted, marginBottom: 8 }}>EXERCISES</div>
+                      <div className="flex flex-col" style={{ gap: 6 }}>
+                        {Object.entries(selectedInfo.byExercise).map(([exId, sets]) => {
+                          const ex = exMap[exId];
+                          return (
+                            <div key={exId} style={{ background: COLORS.surfaceRaised, borderRadius: 8, padding: "8px 12px" }}>
+                              <div className="flex items-center" style={{ gap: 7, marginBottom: 4 }}>
+                                <div style={{ width: 7, height: 7, borderRadius: 99, background: CATEGORY_COLORS[categoryOf(ex)] }} />
+                                <span style={{ fontSize: 13 }}>{ex?.name || "Unknown exercise"}</span>
+                              </div>
+                              <div style={{ fontSize: 12, color: COLORS.textMuted, fontFamily: "'IBM Plex Mono', monospace" }}>
+                                {sets.map((s) => `${fmt(s.weight)}${unit}×${s.reps}`).join("   ")}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                    <MuscleBreakdown byMuscle={selectedInfo.byMuscle} unit={unit} />
+                  </>
+                )}
+                {selectedBw && (
+                  <StatCard label="BODYWEIGHT" value={`${fmt(unit === "kg" ? selectedBw.weightKg : kgToLb(selectedBw.weightKg))}${unit}`} sub="logged this day" color={CATEGORY_COLORS.Legs} />
+                )}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function PeriodSummary({ period, entries, exMap, bwEntries, unit }) {
+  const [refDate, setRefDate] = useState(new Date());
+
+  const range = useMemo(() => {
+    if (period === "week") { const s = startOfWeek(refDate); return { start: s, end: addDays(s, 6) }; }
+    if (period === "month") { return { start: new Date(refDate.getFullYear(), refDate.getMonth(), 1), end: new Date(refDate.getFullYear(), refDate.getMonth() + 1, 0) }; }
+    return { start: new Date(refDate.getFullYear(), 0, 1), end: new Date(refDate.getFullYear(), 11, 31) };
+  }, [period, refDate]);
+
+  const label = period === "week"
+    ? `${fmtDateShort(range.start)} – ${fmtDateShort(range.end)}, ${range.end.getFullYear()}`
+    : period === "month" ? fmtMonthYear(refDate) : String(refDate.getFullYear());
+
+  const agg = useMemo(() => aggregateEntriesInRange(entries, exMap, unit, range.start, range.end), [entries, exMap, unit, range]);
+
+  const buckets = useMemo(() => {
+    if (period === "week") {
+      return Array.from({ length: 7 }, (_, i) => { const d = addDays(range.start, i); return { start: d, end: d, label: DAYS[i] }; });
+    }
+    if (period === "month") {
+      const bks = []; let cursor = range.start;
+      while (cursor <= range.end) {
+        const wEnd = addDays(cursor, 6) > range.end ? range.end : addDays(cursor, 6);
+        bks.push({ start: cursor, end: wEnd, label: fmtDateShort(cursor) });
+        cursor = addDays(wEnd, 1);
+      }
+      return bks;
+    }
+    return Array.from({ length: 12 }, (_, i) => ({ start: new Date(range.start.getFullYear(), i, 1), end: new Date(range.start.getFullYear(), i + 1, 0), label: MONTH_SHORT[i] }));
+  }, [period, range]);
+
+  const chartData = useMemo(() => buckets.map((b) => {
+    const a = aggregateEntriesInRange(entries, exMap, unit, b.start, b.end);
+    const row = { label: b.label };
+    CATEGORIES.forEach((c) => { row[c] = a.byCategory[c]?.volume || 0; });
+    return row;
+  }), [buckets, entries, exMap, unit]);
+
+  const bwInRange = useMemo(() => {
+    const s = ymd(range.start), e = ymd(range.end);
+    return bwEntries.filter((b) => b.date >= s && b.date <= e);
+  }, [bwEntries, range]);
+  const bwFirst = bwInRange[0]; const bwLast = bwInRange[bwInRange.length - 1];
+  const bwChange = bwFirst && bwLast && bwFirst !== bwLast
+    ? (unit === "kg" ? bwLast.weightKg - bwFirst.weightKg : kgToLb(bwLast.weightKg) - kgToLb(bwFirst.weightKg))
+    : null;
+
+  const goPrev = () => setRefDate((d) => period === "week" ? addDays(d, -7) : period === "month" ? addMonths(d, -1) : addYears(d, -1));
+  const goNext = () => setRefDate((d) => period === "week" ? addDays(d, 7) : period === "month" ? addMonths(d, 1) : addYears(d, 1));
+  const goCurrent = () => setRefDate(new Date());
+
+  const barSeries = CATEGORIES.filter((c) => agg.byCategory[c]).map((c) => ({ dataKey: c, color: CATEGORY_COLORS[c], label: c }));
+  const iconBtnStyle = { padding: 8, borderRadius: 8, border: `1px solid ${COLORS.line}`, background: COLORS.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" };
+
+  return (
+    <div className="flex flex-col" style={{ gap: 16 }}>
+      <div className="flex items-center justify-between">
+        <button onClick={goPrev} style={iconBtnStyle}><ChevronLeft size={16} color={COLORS.textMuted} /></button>
+        <div className="flex items-center" style={{ gap: 10 }}>
+          <span style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: 19, letterSpacing: 0.5 }}>{label}</span>
+          <button onClick={goCurrent} style={{ fontSize: 11, padding: "3px 9px", borderRadius: 99, border: `1px solid ${COLORS.line}`, background: COLORS.surfaceRaised, color: COLORS.textMuted, cursor: "pointer" }}>
+            {period === "week" ? "This Week" : period === "month" ? "This Month" : "This Year"}
+          </button>
+        </div>
+        <button onClick={goNext} style={iconBtnStyle}><ChevronRight size={16} color={COLORS.textMuted} /></button>
+      </div>
+
+      {agg.totalSets === 0 ? (
+        <EmptyState icon={CalendarDays} title="NOTHING LOGGED" body={`No sets logged for this ${period}.`} />
+      ) : (
+        <>
+          <div className="flex" style={{ gap: 10, flexWrap: "wrap" }}>
+            <StatCard label="SESSIONS" value={agg.sessionDays.size} sub={`day${agg.sessionDays.size === 1 ? "" : "s"} trained`} color={CATEGORY_COLORS.Push} />
+            <StatCard label="TOTAL VOLUME" value={`${Math.round(agg.totalVolume).toLocaleString()}${unit}`} sub={`${agg.totalSets} sets`} color={CATEGORY_COLORS.Pull} />
+            <StatCard label="TOTAL REPS" value={agg.totalReps} sub="across all sets" color={CATEGORY_COLORS.Legs} />
+            {bwChange !== null && (
+              <StatCard label="BODYWEIGHT" value={`${bwChange >= 0 ? "+" : ""}${fmt(bwChange)}${unit}`} sub={`over this ${period}`} color={bwChange >= 0 ? CATEGORY_COLORS.Push : CATEGORY_COLORS.Pull} />
+            )}
+          </div>
+
+          <div style={{ background: COLORS.surface, border: `1px solid ${COLORS.line}`, borderRadius: 10, padding: "16px 8px 8px" }}>
+            <div style={{ fontSize: 12, color: COLORS.textMuted, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: 0.5, padding: "0 12px 6px" }}>
+              VOLUME BY {period === "week" ? "DAY" : period === "month" ? "WEEK" : "MONTH"}
+            </div>
+            <ChartLegend items={barSeries.map((s) => ({ label: s.label, color: s.color }))} />
+            <SimpleStackedBarChart data={chartData} xKey="label" unit={unit} series={barSeries} />
+          </div>
+
+          <div>
+            <div style={{ fontSize: 11, color: COLORS.textMuted, marginBottom: 8 }}>BY CATEGORY</div>
+            <CategoryBreakdown byCategory={agg.byCategory} unit={unit} />
+          </div>
+
+          <MuscleBreakdown byMuscle={agg.byMuscle} unit={unit} />
+        </>
+      )}
+    </div>
+  );
+}
+
+function CategoryBreakdown({ byCategory, unit }) {
+  const grandTotal = Object.values(byCategory).reduce((s, c) => s + c.volume, 0);
+  const present = CATEGORIES.filter((c) => byCategory[c]);
+  if (present.length === 0) return null;
+  return (
+    <div className="flex" style={{ gap: 10, flexWrap: "wrap" }}>
+      {present.map((c) => {
+        const pct = grandTotal ? (byCategory[c].volume / grandTotal) * 100 : 0;
+        return (
+          <div key={c} style={{ flex: "1 1 150px", background: COLORS.surface, border: `1px solid ${COLORS.line}`, borderRadius: 10, padding: 12 }}>
+            <div className="flex items-center justify-between" style={{ marginBottom: 6 }}>
+              <span style={{ fontSize: 12, fontWeight: 600, color: CATEGORY_COLORS[c] }}>{c}</span>
+              <span style={{ fontSize: 11, color: COLORS.textFaint }}>{fmt(pct)}%</span>
+            </div>
+            <div style={{ height: 5, background: COLORS.surfaceRaised, borderRadius: 3, overflow: "hidden" }}>
+              <div style={{ width: `${pct}%`, height: "100%", background: CATEGORY_COLORS[c] }} />
+            </div>
+            <div style={{ fontSize: 10.5, color: COLORS.textFaint, marginTop: 5 }}>{byCategory[c].reps} reps · {Math.round(byCategory[c].volume).toLocaleString()}{unit}</div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function MuscleBreakdown({ byMuscle, unit, title = "BY MUSCLE GROUP" }) {
+  const musclesPresent = MUSCLE_LIST.filter((m) => byMuscle[m.muscle]);
+  if (musclesPresent.length === 0) return null;
+  return (
+    <div>
+      <div style={{ fontSize: 11, color: COLORS.textMuted, marginBottom: 8 }}>{title}</div>
+      <div className="flex flex-col" style={{ gap: 12 }}>
+        {CATEGORIES.map((cat) => {
+          const muscles = musclesPresent.filter((m) => m.category === cat);
+          if (muscles.length === 0) return null;
+          return (
+            <div key={cat}>
+              <div className="flex items-center" style={{ gap: 6, marginBottom: 6 }}>
+                <div style={{ width: 7, height: 7, borderRadius: 99, background: CATEGORY_COLORS[cat] }} />
+                <span style={{ fontSize: 11.5, fontWeight: 600, color: CATEGORY_COLORS[cat] }}>{cat}</span>
+              </div>
+              <div className="flex flex-col" style={{ gap: 4 }}>
+                {muscles.map((m) => {
+                  const d = byMuscle[m.muscle];
+                  return (
+                    <div key={m.muscle} className="flex items-center justify-between" style={{ padding: "6px 10px", background: COLORS.surfaceRaised, borderRadius: 6 }}>
+                      <span style={{ fontSize: 12.5, color: MUSCLE_COLORS[m.muscle] }}>{m.muscle}</span>
+                      <span style={{ fontSize: 11.5, color: COLORS.textFaint, fontFamily: "'IBM Plex Mono', monospace" }}>{d.reps} reps · {Math.round(d.volume).toLocaleString()}{unit} · {d.sets} sets</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
