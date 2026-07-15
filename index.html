@@ -637,6 +637,9 @@ function GymTracker() {
     });
   }, []);
   const addEntry = useCallback((entry) => { setEntries((prev) => { const next = [...prev, entry]; saveJSON("workout_entries", next); return next; }); }, []);
+  const updateEntry = useCallback((id, updates) => {
+    setEntries((prev) => { const next = prev.map((e) => (e.id === id ? { ...e, ...updates } : e)); saveJSON("workout_entries", next); return next; });
+  }, []);
   const deleteEntry = useCallback((id) => { setEntries((prev) => { const next = prev.filter((e) => e.id !== id); saveJSON("workout_entries", next); return next; }); }, []);
   const addBw = useCallback((entry) => { setBwEntries((prev) => { const next = [...prev, entry].sort((a, b) => a.date.localeCompare(b.date)); saveJSON("bodyweight_entries", next); return next; }); }, []);
   const deleteBw = useCallback((id) => { setBwEntries((prev) => { const next = prev.filter((e) => e.id !== id); saveJSON("bodyweight_entries", next); return next; }); }, []);
@@ -826,7 +829,7 @@ function GymTracker() {
 
   const renderTab = (key) => {
     if (key === "log") {
-      return <LogTab exercises={exercises} entries={entries} exMap={exMap} unit={unit} addExercise={addExercise} addEntry={addEntry} deleteEntry={deleteEntry} routines={routines} weekPlan={weekPlan} setTab={goToTab} />;
+      return <LogTab exercises={exercises} entries={entries} exMap={exMap} unit={unit} addExercise={addExercise} addEntry={addEntry} updateEntry={updateEntry} deleteEntry={deleteEntry} routines={routines} weekPlan={weekPlan} setTab={goToTab} />;
     }
     if (key === "exercises") {
       return <ExercisesTab exercises={exercises} entries={entries} addExercise={addExercise} updateExercise={updateExercise} deleteExercise={deleteExercise} />;
@@ -906,7 +909,7 @@ function GymTracker() {
 }
 
 // ================= LOG TAB =================
-function LogTab({ exercises, entries, exMap, unit, addExercise, addEntry, deleteEntry, routines, weekPlan, setTab }) {
+function LogTab({ exercises, entries, exMap, unit, addExercise, addEntry, updateEntry, deleteEntry, routines, weekPlan, setTab }) {
   const [exerciseId, setExerciseId] = useState(exercises[0]?.id || "");
   const [weight, setWeight] = useState("");
   const [reps, setReps] = useState("");
@@ -915,6 +918,11 @@ function LogTab({ exercises, entries, exMap, unit, addExercise, addEntry, delete
   const [newName, setNewName] = useState("");
   const [newMuscle, setNewMuscle] = useState("Chest");
   const [newLoadType, setNewLoadType] = useState("total");
+  const [editingEntryId, setEditingEntryId] = useState(null);
+  const [editExerciseId, setEditExerciseId] = useState("");
+  const [editWeight, setEditWeight] = useState("");
+  const [editReps, setEditReps] = useState("");
+  const [editDate, setEditDate] = useState("");
 
   useEffect(() => { if (!exerciseId && exercises.length) setExerciseId(exercises[0].id); }, [exercises, exerciseId]);
 
@@ -932,6 +940,22 @@ function LogTab({ exercises, entries, exMap, unit, addExercise, addEntry, delete
     if (!newName.trim()) return;
     const id = addExercise(newName.trim(), newMuscle, newLoadType);
     setExerciseId(id); setNewName(""); setShowAdd(false);
+  };
+
+  const startEditEntry = (e) => {
+    setEditingEntryId(e.id);
+    setEditExerciseId(e.exerciseId);
+    setEditWeight(String(fmt(unit === "kg" ? e.weightKg : kgToLb(e.weightKg))));
+    setEditReps(String(e.reps));
+    setEditDate(e.date);
+  };
+  const cancelEditEntry = () => setEditingEntryId(null);
+  const saveEditEntry = () => {
+    const w = parseFloat(editWeight); const r = parseInt(editReps, 10);
+    if (!editExerciseId || !(w > 0) || !(r > 0) || !editDate) return;
+    const weightKg = unit === "kg" ? w : lbToKg(w);
+    updateEntry(editingEntryId, { exerciseId: editExerciseId, date: editDate, weightKg, reps: r });
+    setEditingEntryId(null);
   };
 
   const todaysEntries = entries.filter((e) => e.date === date).sort((a, b) => (a.id < b.id ? 1 : -1));
@@ -1057,6 +1081,30 @@ function LogTab({ exercises, entries, exMap, unit, addExercise, addEntry, delete
             {todaysEntries.map((e) => {
               const ex = exMap[e.exerciseId]; const w = unit === "kg" ? e.weightKg : kgToLb(e.weightKg);
               const badge = getSetBadge(entries, e.exerciseId, e.date, w, e.reps, unit);
+              const isEditingEntry = editingEntryId === e.id;
+              if (isEditingEntry) {
+                const editCat = categoryOf(exMap[editExerciseId]);
+                return (
+                  <div key={e.id} style={{ background: COLORS.surfaceRaised, border: `1px solid ${CATEGORY_COLORS[editCat]}`, borderRadius: 8, padding: 10 }}>
+                    <select value={editExerciseId} onChange={(ev) => setEditExerciseId(ev.target.value)}
+                      style={{ width: "100%", padding: "7px 9px", marginBottom: 8, borderRadius: 6, border: `1px solid ${COLORS.line}`, background: COLORS.surface, color: COLORS.text, fontSize: 12.5 }}>
+                      {CATEGORIES.map((c) => (<optgroup key={c} label={c}>{exercises.filter((ex2) => categoryOf(ex2) === c).map((ex2) => <option key={ex2.id} value={ex2.id}>{ex2.name} · {ex2.muscle}</option>)}</optgroup>))}
+                    </select>
+                    <div className="flex" style={{ gap: 8, marginBottom: 8 }}>
+                      <input type="number" inputMode="decimal" value={editWeight} onChange={(ev) => setEditWeight(ev.target.value)} placeholder={`Weight (${unit})`}
+                        style={{ flex: 1, padding: "7px 9px", borderRadius: 6, border: `1px solid ${COLORS.line}`, background: COLORS.surface, color: COLORS.text, fontSize: 13, fontFamily: "'IBM Plex Mono', monospace" }} />
+                      <input type="number" inputMode="numeric" value={editReps} onChange={(ev) => setEditReps(ev.target.value)} placeholder="Reps"
+                        style={{ flex: 1, padding: "7px 9px", borderRadius: 6, border: `1px solid ${COLORS.line}`, background: COLORS.surface, color: COLORS.text, fontSize: 13, fontFamily: "'IBM Plex Mono', monospace" }} />
+                      <input type="date" value={editDate} onChange={(ev) => setEditDate(ev.target.value)}
+                        style={{ flex: 1, padding: "7px 9px", borderRadius: 6, border: `1px solid ${COLORS.line}`, background: COLORS.surface, color: COLORS.text, fontSize: 12 }} />
+                    </div>
+                    <div className="flex" style={{ gap: 8 }}>
+                      <button onClick={saveEditEntry} style={{ flex: 1, padding: "7px 0", borderRadius: 6, border: "none", background: COLORS.text, color: COLORS.bg, fontWeight: 700, fontSize: 12, cursor: "pointer" }}>Save</button>
+                      <button onClick={cancelEditEntry} style={{ padding: "7px 14px", borderRadius: 6, border: `1px solid ${COLORS.line}`, background: "transparent", color: COLORS.textMuted, fontSize: 12, cursor: "pointer" }}>Cancel</button>
+                    </div>
+                  </div>
+                );
+              }
               return (
                 <div key={e.id} className="flex items-center justify-between" style={{ background: COLORS.surface, border: `1px solid ${COLORS.line}`, borderRadius: 8, padding: "9px 12px" }}>
                   <div className="flex items-center" style={{ gap: 10 }}>
@@ -1074,8 +1122,9 @@ function LogTab({ exercises, entries, exMap, unit, addExercise, addEntry, delete
                       <span style={{ fontSize: 10, color: COLORS.textFaint, background: COLORS.surfaceRaised, padding: "2px 7px", borderRadius: 99 }}>= Matched</span>
                     )}
                   </div>
-                  <div className="flex items-center" style={{ gap: 12 }}>
+                  <div className="flex items-center" style={{ gap: 10 }}>
                     <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, color: COLORS.textMuted }}>{fmt(w)}{unit}{ex?.loadType === "perSide" ? "/side" : ""} × {e.reps}</span>
+                    <button onClick={() => startEditEntry(e)} style={{ background: "none", border: "none", color: COLORS.textFaint, cursor: "pointer" }}><Pencil size={13} /></button>
                     <button onClick={() => deleteEntry(e.id)} style={{ background: "none", border: "none", color: COLORS.textFaint, cursor: "pointer" }}><Trash2 size={14} /></button>
                   </div>
                 </div>
