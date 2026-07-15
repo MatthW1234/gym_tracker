@@ -220,30 +220,37 @@ function categoryOf(exercise) {
 function migrateExercises(list) {
   let changed = false;
   const next = list.map((e) => {
-    if (e.muscle && MUSCLE_TO_CATEGORY[e.muscle]) return e;
+    const hasValidMuscle = e.muscle && MUSCLE_TO_CATEGORY[e.muscle];
+    const hasLoadType = e.loadType === "total" || e.loadType === "perSide";
+    if (hasValidMuscle && hasLoadType) return e;
     changed = true;
     const cat = e.category && MUSCLE_GROUPS[e.category] ? e.category : "Other";
-    return { id: e.id, name: e.name, muscle: MUSCLE_GROUPS[cat][0] };
+    const muscle = hasValidMuscle ? e.muscle : MUSCLE_GROUPS[cat][0];
+    return { id: e.id, name: e.name, muscle, loadType: hasLoadType ? e.loadType : "total" };
   });
   return { list: next, changed };
 }
+// Volume (tonnage) should count both sides for a "Per Side" exercise (e.g. two dumbbells), since
+// each side genuinely moves that load. 1RM/PR tracking deliberately does NOT use this multiplier —
+// est. 1RM should reflect what one side can lift, not a doubled, non-physical number.
+function loadMultiplier(exercise) { return exercise?.loadType === "perSide" ? 2 : 1; }
 
 const DEFAULT_EXERCISES = [
-  { id: "bench-press", name: "Bench Press", muscle: "Chest" },
-  { id: "overhead-press", name: "Overhead Press", muscle: "Shoulders" },
-  { id: "incline-bench", name: "Incline Bench Press", muscle: "Chest" },
-  { id: "dips", name: "Dips", muscle: "Triceps" },
-  { id: "deadlift", name: "Deadlift", muscle: "Back" },
-  { id: "barbell-row", name: "Barbell Row", muscle: "Back" },
-  { id: "pull-up", name: "Pull-up", muscle: "Back" },
-  { id: "lat-pulldown", name: "Lat Pulldown", muscle: "Back" },
-  { id: "squat", name: "Back Squat", muscle: "Quads" },
-  { id: "leg-press", name: "Leg Press", muscle: "Quads" },
-  { id: "romanian-deadlift", name: "Romanian Deadlift", muscle: "Hamstrings" },
-  { id: "lunges", name: "Lunges", muscle: "Quads" },
-  { id: "plank", name: "Plank", muscle: "Abs" },
-  { id: "ab-wheel", name: "Ab Wheel Rollout", muscle: "Abs" },
-  { id: "hanging-leg-raise", name: "Hanging Leg Raise", muscle: "Abs" },
+  { id: "bench-press", name: "Bench Press", muscle: "Chest", loadType: "total" },
+  { id: "overhead-press", name: "Overhead Press", muscle: "Shoulders", loadType: "total" },
+  { id: "incline-bench", name: "Incline Bench Press", muscle: "Chest", loadType: "total" },
+  { id: "dips", name: "Dips", muscle: "Triceps", loadType: "total" },
+  { id: "deadlift", name: "Deadlift", muscle: "Back", loadType: "total" },
+  { id: "barbell-row", name: "Barbell Row", muscle: "Back", loadType: "total" },
+  { id: "pull-up", name: "Pull-up", muscle: "Back", loadType: "total" },
+  { id: "lat-pulldown", name: "Lat Pulldown", muscle: "Back", loadType: "total" },
+  { id: "squat", name: "Back Squat", muscle: "Quads", loadType: "total" },
+  { id: "leg-press", name: "Leg Press", muscle: "Quads", loadType: "total" },
+  { id: "romanian-deadlift", name: "Romanian Deadlift", muscle: "Hamstrings", loadType: "total" },
+  { id: "lunges", name: "Lunges", muscle: "Quads", loadType: "total" },
+  { id: "plank", name: "Plank", muscle: "Abs", loadType: "total" },
+  { id: "ab-wheel", name: "Ab Wheel Rollout", muscle: "Abs", loadType: "total" },
+  { id: "hanging-leg-raise", name: "Hanging Leg Raise", muscle: "Abs", loadType: "total" },
 ];
 
 const PLATES_KG = [25, 20, 15, 10, 5, 2.5, 1.25];
@@ -343,7 +350,7 @@ function aggregateEntriesInRange(entries, exMap, unit, startDate, endDate) {
   for (const e of entries) {
     if (e.date < startStr || e.date > endStr) continue;
     const ex = exMap[e.exerciseId]; const cat = categoryOf(ex); const musc = ex?.muscle || "Other";
-    const w = unit === "kg" ? e.weightKg : kgToLb(e.weightKg); const vol = w * e.reps;
+    const w = unit === "kg" ? e.weightKg : kgToLb(e.weightKg); const vol = w * e.reps * loadMultiplier(ex);
     totalVolume += vol; totalReps += e.reps; totalSets += 1; sessionDays.add(e.date);
     if (!byCategory[cat]) byCategory[cat] = { volume: 0, reps: 0, sets: 0 };
     byCategory[cat].volume += vol; byCategory[cat].reps += e.reps; byCategory[cat].sets += 1;
@@ -357,7 +364,7 @@ function buildDayIndex(entries, exMap, unit) {
   const map = {};
   for (const e of entries) {
     const ex = exMap[e.exerciseId]; const cat = categoryOf(ex); const musc = ex?.muscle || "Other";
-    const w = unit === "kg" ? e.weightKg : kgToLb(e.weightKg); const vol = w * e.reps;
+    const w = unit === "kg" ? e.weightKg : kgToLb(e.weightKg); const vol = w * e.reps * loadMultiplier(ex);
     if (!map[e.date]) map[e.date] = { totalVolume: 0, totalReps: 0, totalSets: 0, byCategory: {}, byMuscle: {}, byExercise: {} };
     const d = map[e.date];
     d.totalVolume += vol; d.totalReps += e.reps; d.totalSets += 1;
@@ -613,8 +620,8 @@ function GymTracker() {
   }, []);
 
   const changeUnit = useCallback((u) => { setUnit(u); saveJSON("unit_pref", u); }, []);
-  const addExercise = useCallback((name, muscle) => {
-    const ex = { id: genId(), name, muscle };
+  const addExercise = useCallback((name, muscle, loadType) => {
+    const ex = { id: genId(), name, muscle, loadType: loadType === "perSide" ? "perSide" : "total" };
     setExercises((prev) => { const next = [...prev, ex]; saveJSON("exercises", next); return next; });
     return ex.id;
   }, []);
@@ -907,6 +914,7 @@ function LogTab({ exercises, entries, exMap, unit, addExercise, addEntry, delete
   const [showAdd, setShowAdd] = useState(false);
   const [newName, setNewName] = useState("");
   const [newMuscle, setNewMuscle] = useState("Chest");
+  const [newLoadType, setNewLoadType] = useState("total");
 
   useEffect(() => { if (!exerciseId && exercises.length) setExerciseId(exercises[0].id); }, [exercises, exerciseId]);
 
@@ -922,7 +930,7 @@ function LogTab({ exercises, entries, exMap, unit, addExercise, addEntry, delete
   };
   const handleAddExercise = () => {
     if (!newName.trim()) return;
-    const id = addExercise(newName.trim(), newMuscle);
+    const id = addExercise(newName.trim(), newMuscle, newLoadType);
     setExerciseId(id); setNewName(""); setShowAdd(false);
   };
 
@@ -933,6 +941,7 @@ function LogTab({ exercises, entries, exMap, unit, addExercise, addEntry, delete
   const planRoutine = routines.find((r) => r.id === planRoutineId);
   const doneExerciseIds = new Set(todaysEntries.map((e) => e.exerciseId));
   const lastSession = exerciseId ? getLastSession(entries, exerciseId, date, unit) : null;
+  const isPerSide = exMap[exerciseId]?.loadType === "perSide";
 
   return (
     <div className="flex flex-col" style={{ gap: 20 }}>
@@ -981,9 +990,13 @@ function LogTab({ exercises, entries, exMap, unit, addExercise, addEntry, delete
             <div style={{ marginBottom: 14, padding: 12, background: COLORS.surfaceRaised, borderRadius: 8, border: `1px solid ${COLORS.line}` }}>
               <input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Exercise name" style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${COLORS.line}`, background: COLORS.surface, color: COLORS.text, fontSize: 13, marginBottom: 8 }} />
               <label style={{ fontSize: 10.5, color: COLORS.textMuted }}>Main muscle worked</label>
-              <select value={newMuscle} onChange={(e) => setNewMuscle(e.target.value)} style={{ width: "100%", padding: "7px 9px", marginTop: 4, borderRadius: 6, border: `1px solid ${COLORS.line}`, background: COLORS.surface, color: COLORS.text, fontSize: 12.5 }}>
+              <select value={newMuscle} onChange={(e) => setNewMuscle(e.target.value)} style={{ width: "100%", padding: "7px 9px", marginTop: 4, marginBottom: 8, borderRadius: 6, border: `1px solid ${COLORS.line}`, background: COLORS.surface, color: COLORS.text, fontSize: 12.5 }}>
                 {CATEGORIES.map((c) => (<optgroup key={c} label={c}>{MUSCLE_GROUPS[c].map((m) => <option key={m} value={m}>{m}</option>)}</optgroup>))}
               </select>
+              <label style={{ fontSize: 10.5, color: COLORS.textMuted }}>Load Type</label>
+              <div style={{ marginTop: 4 }}>
+                <Segmented options={[{ value: "total", label: "Total" }, { value: "perSide", label: "Per Side" }]} value={newLoadType} onChange={setNewLoadType} />
+              </div>
               <button onClick={handleAddExercise} style={{ marginTop: 10, width: "100%", padding: "8px 0", borderRadius: 6, border: "none", background: COLORS.text, color: COLORS.bg, fontWeight: 600, fontSize: 12.5, cursor: "pointer" }}>Add exercise</button>
             </div>
           )}
@@ -995,7 +1008,7 @@ function LogTab({ exercises, entries, exMap, unit, addExercise, addEntry, delete
             <div style={{ marginBottom: 12, padding: "8px 10px", background: COLORS.surfaceRaised, borderRadius: 7, border: `1px solid ${COLORS.line}` }}>
               <div style={{ fontSize: 10, color: COLORS.textFaint, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: 0.4, marginBottom: 3 }}>LAST TIME · {lastSession.date}</div>
               <div style={{ fontSize: 12.5, color: COLORS.textMuted, fontFamily: "'IBM Plex Mono', monospace" }}>
-                {lastSession.sets.map((s, i) => `${fmt(s.weight)}${unit}×${s.reps}`).join("   ")}
+                {lastSession.sets.map((s, i) => `${fmt(s.weight)}${unit}${isPerSide ? "/side" : ""}×${s.reps}`).join("   ")}
               </div>
             </div>
           )}
@@ -1015,9 +1028,23 @@ function LogTab({ exercises, entries, exMap, unit, addExercise, addEntry, delete
         </div>
 
         <div style={{ flex: "1 1 220px", background: COLORS.surface, border: `1px solid ${COLORS.line}`, borderRadius: 10, padding: 16, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
-          <span style={{ fontSize: 12, color: COLORS.textMuted, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: 0.5, marginBottom: 10, alignSelf: "flex-start" }}>BAR LOAD (per side)</span>
-          <PlateStack weight={weightNum > 0 ? weightNum : (unit === "kg" ? BAR_KG : BAR_LB)} unit={unit} />
-          <div style={{ marginTop: 8, fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, color: COLORS.textFaint, textAlign: "center" }}>bar = {unit === "kg" ? BAR_KG : BAR_LB}{unit}</div>
+          {isPerSide ? (
+            <>
+              <span style={{ fontSize: 12, color: COLORS.textMuted, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: 0.5, marginBottom: 14, alignSelf: "flex-start" }}>PER-SIDE LOAD</span>
+              <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: 34, letterSpacing: 0.5, lineHeight: 1 }}>
+                {weightNum > 0 ? fmt(weightNum) : 0}{unit} <span style={{ fontSize: 16, color: COLORS.textFaint, fontFamily: "'IBM Plex Mono', monospace" }}>each side</span>
+              </div>
+              <div style={{ marginTop: 10, fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, color: CATEGORY_COLORS.Pull }}>
+                = {weightNum > 0 ? fmt(weightNum * 2) : 0}{unit} total load
+              </div>
+            </>
+          ) : (
+            <>
+              <span style={{ fontSize: 12, color: COLORS.textMuted, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: 0.5, marginBottom: 10, alignSelf: "flex-start" }}>BAR LOAD</span>
+              <PlateStack weight={weightNum > 0 ? weightNum : (unit === "kg" ? BAR_KG : BAR_LB)} unit={unit} />
+              <div style={{ marginTop: 8, fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, color: COLORS.textFaint, textAlign: "center" }}>bar = {unit === "kg" ? BAR_KG : BAR_LB}{unit}</div>
+            </>
+          )}
         </div>
       </div>
 
@@ -1048,7 +1075,7 @@ function LogTab({ exercises, entries, exMap, unit, addExercise, addEntry, delete
                     )}
                   </div>
                   <div className="flex items-center" style={{ gap: 12 }}>
-                    <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, color: COLORS.textMuted }}>{fmt(w)}{unit} × {e.reps}</span>
+                    <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, color: COLORS.textMuted }}>{fmt(w)}{unit}{ex?.loadType === "perSide" ? "/side" : ""} × {e.reps}</span>
                     <button onClick={() => deleteEntry(e.id)} style={{ background: "none", border: "none", color: COLORS.textFaint, cursor: "pointer" }}><Trash2 size={14} /></button>
                   </div>
                 </div>
@@ -1264,7 +1291,7 @@ function VolumeTab({ exercises, entries, exMap, unit }) {
       const ex = exMap[e.exerciseId]; const cat = categoryOf(ex);
       const musc = ex?.muscle || "Other";
       const w = unit === "kg" ? e.weightKg : kgToLb(e.weightKg);
-      const vol = w * e.reps; const wk = isoWeekKey(e.date);
+      const vol = w * e.reps * loadMultiplier(ex); const wk = isoWeekKey(e.date);
       if (!weekMap[wk]) weekMap[wk] = { week: wk };
       weekMap[wk][cat] = (weekMap[wk][cat] || 0) + vol;
       weekMap[wk]["m:" + musc] = (weekMap[wk]["m:" + musc] || 0) + vol;
@@ -1283,7 +1310,7 @@ function VolumeTab({ exercises, entries, exMap, unit }) {
     for (const e of entries) {
       const ex = exMap[e.exerciseId]; const cat = categoryOf(ex);
       const w = unit === "kg" ? e.weightKg : kgToLb(e.weightKg);
-      totals[cat] = (totals[cat] || 0) + w * e.reps;
+      totals[cat] = (totals[cat] || 0) + w * e.reps * loadMultiplier(ex);
     }
     return totals;
   }, [entries, exMap, unit]);
@@ -1293,7 +1320,7 @@ function VolumeTab({ exercises, entries, exMap, unit }) {
     for (const e of entries) {
       const ex = exMap[e.exerciseId]; const musc = ex?.muscle || "Other";
       const w = unit === "kg" ? e.weightKg : kgToLb(e.weightKg);
-      totals[musc] = (totals[musc] || 0) + w * e.reps;
+      totals[musc] = (totals[musc] || 0) + w * e.reps * loadMultiplier(ex);
     }
     return totals;
   }, [entries, exMap, unit]);
@@ -1649,9 +1676,11 @@ function NutritionTab({ bwEntries, unit, foodEntries, addFood, deleteFood, profi
 function ExercisesTab({ exercises, entries, addExercise, updateExercise, deleteExercise }) {
   const [name, setName] = useState("");
   const [muscle, setMuscle] = useState("Chest");
+  const [loadType, setLoadType] = useState("total");
   const [editingId, setEditingId] = useState(null);
   const [editName, setEditName] = useState("");
   const [editMuscle, setEditMuscle] = useState("Chest");
+  const [editLoadType, setEditLoadType] = useState("total");
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
 
   const usageCount = useMemo(() => {
@@ -1662,15 +1691,15 @@ function ExercisesTab({ exercises, entries, addExercise, updateExercise, deleteE
 
   const handleAdd = () => {
     if (!name.trim()) return;
-    addExercise(name.trim(), muscle);
+    addExercise(name.trim(), muscle, loadType);
     setName("");
   };
 
-  const startEdit = (ex) => { setEditingId(ex.id); setEditName(ex.name); setEditMuscle(ex.muscle); setConfirmDeleteId(null); };
+  const startEdit = (ex) => { setEditingId(ex.id); setEditName(ex.name); setEditMuscle(ex.muscle); setEditLoadType(ex.loadType === "perSide" ? "perSide" : "total"); setConfirmDeleteId(null); };
   const cancelEdit = () => setEditingId(null);
   const saveEdit = (id) => {
     if (!editName.trim()) return;
-    updateExercise(id, { name: editName.trim(), muscle: editMuscle });
+    updateExercise(id, { name: editName.trim(), muscle: editMuscle, loadType: editLoadType });
     setEditingId(null);
   };
 
@@ -1678,18 +1707,27 @@ function ExercisesTab({ exercises, entries, addExercise, updateExercise, deleteE
     <div className="flex flex-col" style={{ gap: 18 }}>
       <div style={{ background: COLORS.surface, border: `1px solid ${COLORS.line}`, borderRadius: 10, padding: 16 }}>
         <div style={{ fontSize: 12, color: COLORS.textMuted, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: 0.5, marginBottom: 12 }}>ADD EXERCISE</div>
-        <div className="flex" style={{ gap: 8, flexWrap: "wrap" }}>
+        <div className="flex" style={{ gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
           <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Exercise name"
             style={{ flex: "2 1 180px", padding: "9px 10px", borderRadius: 7, border: `1px solid ${COLORS.line}`, background: COLORS.surfaceRaised, color: COLORS.text, fontSize: 13.5 }} />
           <select value={muscle} onChange={(e) => setMuscle(e.target.value)}
             style={{ flex: "1 1 160px", padding: "9px 10px", borderRadius: 7, border: `1px solid ${COLORS.line}`, background: COLORS.surfaceRaised, color: COLORS.text, fontSize: 13 }}>
             {CATEGORIES.map((c) => (<optgroup key={c} label={c}>{MUSCLE_GROUPS[c].map((m) => <option key={m} value={m}>{m}</option>)}</optgroup>))}
           </select>
-          <button onClick={handleAdd} disabled={!name.trim()} className="flex items-center justify-center"
-            style={{ gap: 5, padding: "9px 16px", borderRadius: 7, border: "none", background: name.trim() ? COLORS.text : COLORS.line, color: name.trim() ? COLORS.bg : COLORS.textFaint, fontWeight: 700, fontSize: 12.5, cursor: name.trim() ? "pointer" : "not-allowed" }}>
-            <Plus size={13} /> Add
-          </button>
         </div>
+        <div className="flex items-center" style={{ gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
+          <label style={{ fontSize: 11, color: COLORS.textMuted, whiteSpace: "nowrap" }}>Load Type</label>
+          <div style={{ flex: "1 1 220px", maxWidth: 260 }}>
+            <Segmented options={[{ value: "total", label: "Total" }, { value: "perSide", label: "Per Side" }]} value={loadType} onChange={setLoadType} />
+          </div>
+        </div>
+        <div style={{ fontSize: 10.5, color: COLORS.textFaint, marginBottom: 12 }}>
+          {loadType === "perSide" ? "You'll log the weight of one side (e.g. one dumbbell) — volume totals count both." : "You'll log the total combined weight (barbell, machine, bodyweight+added)."}
+        </div>
+        <button onClick={handleAdd} disabled={!name.trim()} className="flex items-center justify-center"
+          style={{ gap: 5, width: "100%", padding: "9px 16px", borderRadius: 7, border: "none", background: name.trim() ? COLORS.text : COLORS.line, color: name.trim() ? COLORS.bg : COLORS.textFaint, fontWeight: 700, fontSize: 12.5, cursor: name.trim() ? "pointer" : "not-allowed" }}>
+          <Plus size={13} /> Add
+        </button>
       </div>
 
       {CATEGORIES.map((cat) => {
@@ -1718,6 +1756,9 @@ function ExercisesTab({ exercises, entries, addExercise, updateExercise, deleteE
                             {CATEGORIES.map((c) => (<optgroup key={c} label={c}>{MUSCLE_GROUPS[c].map((m) => <option key={m} value={m}>{m}</option>)}</optgroup>))}
                           </select>
                         </div>
+                        <div style={{ maxWidth: 260 }}>
+                          <Segmented options={[{ value: "total", label: "Total" }, { value: "perSide", label: "Per Side" }]} value={editLoadType} onChange={setEditLoadType} />
+                        </div>
                         <div className="flex" style={{ gap: 8 }}>
                           <button onClick={() => saveEdit(ex.id)} style={{ flex: 1, padding: "7px 0", borderRadius: 6, border: "none", background: COLORS.text, color: COLORS.bg, fontWeight: 700, fontSize: 12, cursor: "pointer" }}>Save</button>
                           <button onClick={cancelEdit} style={{ padding: "7px 14px", borderRadius: 6, border: `1px solid ${COLORS.line}`, background: "transparent", color: COLORS.textMuted, fontSize: 12, cursor: "pointer" }}>Cancel</button>
@@ -1736,9 +1777,12 @@ function ExercisesTab({ exercises, entries, addExercise, updateExercise, deleteE
                       </div>
                     ) : (
                       <div className="flex items-center justify-between">
-                        <div className="flex items-center" style={{ gap: 8 }}>
+                        <div className="flex items-center" style={{ gap: 8, flexWrap: "wrap" }}>
                           <span style={{ fontSize: 13.5 }}>{ex.name}</span>
                           <span style={{ fontSize: 10.5, padding: "2px 7px", borderRadius: 99, border: `1px solid ${MUSCLE_COLORS[ex.muscle] || COLORS.line}66`, color: MUSCLE_COLORS[ex.muscle] || COLORS.textFaint }}>{ex.muscle}</span>
+                          {ex.loadType === "perSide" && (
+                            <span style={{ fontSize: 10.5, padding: "2px 7px", borderRadius: 99, border: `1px solid ${COLORS.line}`, color: COLORS.textMuted }}>Per Side</span>
+                          )}
                           {uses > 0 && <span style={{ fontSize: 10.5, color: COLORS.textFaint }}>{uses} logged</span>}
                         </div>
                         <div className="flex items-center" style={{ gap: 10 }}>
@@ -1876,7 +1920,7 @@ function CalendarView({ entries, exMap, bwEntries, unit }) {
                                 <span style={{ fontSize: 13 }}>{ex?.name || "Unknown exercise"}</span>
                               </div>
                               <div style={{ fontSize: 12, color: COLORS.textMuted, fontFamily: "'IBM Plex Mono', monospace" }}>
-                                {sets.map((s) => `${fmt(s.weight)}${unit}×${s.reps}`).join("   ")}
+                                {sets.map((s) => `${fmt(s.weight)}${unit}${ex?.loadType === "perSide" ? "/side" : ""}×${s.reps}`).join("   ")}
                               </div>
                             </div>
                           );
