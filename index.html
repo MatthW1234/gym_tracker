@@ -2035,6 +2035,19 @@ function CalendarView({ entries, exMap, bwEntries, unit }) {
         <button onClick={goNextMonth} style={iconBtnStyle}><ChevronRight size={16} color={COLORS.textMuted} /></button>
       </div>
 
+      <div className="flex items-center" style={{ gap: 12, flexWrap: "wrap" }}>
+        {CATEGORIES.map((c) => (
+          <div key={c} className="flex items-center" style={{ gap: 5 }}>
+            <div style={{ width: 8, height: 8, borderRadius: 3, background: CATEGORY_COLORS[c] }} />
+            <span style={{ fontSize: 10.5, color: COLORS.textFaint }}>{c}</span>
+          </div>
+        ))}
+        <div className="flex items-center" style={{ gap: 5 }}>
+          <div style={{ width: 6, height: 6, borderRadius: 99, background: COLORS.text, border: `1px solid ${COLORS.textFaint}` }} />
+          <span style={{ fontSize: 10.5, color: COLORS.textFaint }}>bodyweight logged</span>
+        </div>
+      </div>
+
       <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 4 }}>
         {DAYS.map((d) => (
           <div key={d} style={{ textAlign: "center", fontSize: 10, color: COLORS.textFaint, fontFamily: "'IBM Plex Mono', monospace" }}>{d.slice(0, 2).toUpperCase()}</div>
@@ -2050,18 +2063,41 @@ function CalendarView({ entries, exMap, bwEntries, unit }) {
           const isSelected = dateStr === selectedDate;
           const isToday = dateStr === todayStr2;
           const cats = info ? CATEGORIES.filter((c) => info.byCategory[c]) : [];
+          const trained = cats.length > 0;
+
+          let fillBackground = COLORS.surface;
+          if (trained) {
+            if (cats.length === 1) {
+              fillBackground = CATEGORY_COLORS[cats[0]];
+            } else {
+              const n = cats.length;
+              const stops = cats.map((c, idx) => `${CATEGORY_COLORS[c]} ${(idx / n) * 360}deg ${((idx + 1) / n) * 360}deg`);
+              fillBackground = `conic-gradient(${stops.join(", ")})`;
+            }
+          }
+
           return (
             <button key={i} onClick={() => setSelectedDate(dateStr)}
               style={{
-                aspectRatio: "1", borderRadius: 8, border: isSelected ? `1.5px solid ${COLORS.text}` : `1px solid ${COLORS.line}`,
-                background: isSelected ? COLORS.surfaceRaised : COLORS.surface, opacity: inMonth ? 1 : 0.32,
-                cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 3, padding: 2,
+                position: "relative", aspectRatio: "1", borderRadius: 8, overflow: "hidden",
+                border: isSelected ? `2px solid ${COLORS.text}` : isToday ? `1.5px solid ${COLORS.text}` : `1px solid ${COLORS.line}`,
+                opacity: inMonth ? 1 : 0.32, cursor: "pointer", padding: 0, background: COLORS.surface,
               }}>
-              <span style={{ fontSize: 12, fontFamily: "'IBM Plex Mono', monospace", color: isToday ? CATEGORY_COLORS.Push : COLORS.text, fontWeight: isToday ? 700 : 400 }}>{d.getDate()}</span>
-              <div className="flex items-center" style={{ gap: 2, height: 5 }}>
-                {cats.slice(0, 4).map((c) => <div key={c} style={{ width: 4, height: 4, borderRadius: 99, background: CATEGORY_COLORS[c] }} />)}
-                {hasBw && <div style={{ width: 4, height: 4, borderRadius: 99, background: COLORS.textFaint }} />}
+              <div style={{ position: "absolute", inset: 0, background: fillBackground }} />
+              {trained && <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.38)" }} />}
+              <div style={{ position: "relative", height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <span style={{
+                  fontSize: 12, fontFamily: "'IBM Plex Mono', monospace", fontWeight: isToday ? 700 : 400,
+                  color: trained ? "#fff" : COLORS.text,
+                  textShadow: trained ? "0 1px 2px rgba(0,0,0,0.5)" : "none",
+                }}>{d.getDate()}</span>
               </div>
+              {hasBw && (
+                <div style={{
+                  position: "absolute", top: 4, right: 4, width: 5, height: 5, borderRadius: 99,
+                  background: trained ? "#fff" : COLORS.textFaint, boxShadow: trained ? "0 0 0 1px rgba(0,0,0,0.4)" : "none",
+                }} />
+              )}
             </button>
           );
         })}
