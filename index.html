@@ -39,6 +39,7 @@
 <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
 <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <script crossorigin src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script crossorigin src="https://unpkg.com/html5-qrcode"></script>
 
 <script type="text/plain" id="app-source">
 const { useState, useEffect, useMemo, useCallback, useRef } = React;
@@ -174,6 +175,14 @@ function Star({ size, color = "currentColor", style, filled }) {
 }
 function Check({ size, color = "currentColor", style }) {
   return <IconWrap size={size} style={style}><polyline points="4,12 9,17 20,6" stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" /></IconWrap>;
+}
+function Camera({ size, color = "currentColor", style }) {
+  return (
+    <IconWrap size={size} style={style}>
+      <path d="M4 8h3l1.5-2h7L17 8h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z" stroke={color} strokeWidth="2" strokeLinejoin="round" />
+      <circle cx="12" cy="14" r="3.5" stroke={color} strokeWidth="2" />
+    </IconWrap>
+  );
 }
 function Circle({ size, color = "currentColor", style }) {
   return <IconWrap size={size} style={style}><circle cx="12" cy="12" r="8" stroke={color} strokeWidth="2" /></IconWrap>;
@@ -449,6 +458,28 @@ function estimateMacroTargets(weightKg, goal, targetCalories) {
   const fatCals = fatG * 9;
   const carbsG = Math.max(0, Math.round((targetCalories - proteinCals - fatCals) / 4));
   return { proteinG, carbsG, fatG };
+}
+
+// ================= BARCODE LOOKUP (Open Food Facts) =================
+const BARCODE_FORMATS = ["EAN_13", "EAN_8", "UPC_A", "UPC_E", "UPC_EAN_EXTENSION"];
+async function lookupBarcode(barcode) {
+  try {
+    const res = await fetch(`https://world.openfoodfacts.org/api/v2/product/${barcode}.json?fields=product_name,brands,nutriments`);
+    if (!res.ok) return { status: "error" };
+    const json = await res.json();
+    if (json.status !== 1 || !json.product) return { status: "notfound" };
+    const n = json.product.nutriments || {};
+    const per100 = {
+      calories: n["energy-kcal_100g"] ?? n["energy-kcal"] ?? 0,
+      protein: n["proteins_100g"] ?? 0,
+      carbs: n["carbohydrates_100g"] ?? 0,
+      fat: n["fat_100g"] ?? 0,
+    };
+    const name = [json.product.brands, json.product.product_name].filter(Boolean).join(" — ") || "Unnamed product";
+    return { status: "found", name, per100 };
+  } catch {
+    return { status: "error" };
+  }
 }
 
 // ================= STORAGE (localStorage-backed, same async interface) =================
@@ -1579,6 +1610,42 @@ function BodyweightTab({ entries, unit, addBw, deleteBw }) {
 }
 
 // ================= NUTRITION TAB =================
+// ================= BARCODE SCANNER =================
+function BarcodeScanner({ onDetected, onFail }) {
+  useEffect(() => {
+    if (!window.Html5Qrcode) {
+      onFail("Scanner library failed to load — check your internet connection and try again.");
+      return;
+    }
+    const formats = BARCODE_FORMATS.map((f) => window.Html5QrcodeSupportedFormats[f]);
+    const html5QrCode = new window.Html5Qrcode("barcode-reader", { formatsToSupport: formats, verbose: false });
+    let settled = false;
+    html5QrCode
+      .start(
+        { facingMode: "environment" },
+        { fps: 10, qrbox: { width: 260, height: 160 } },
+        (decodedText) => {
+          if (settled) return;
+          settled = true;
+          html5QrCode.stop().catch(() => {}).finally(() => onDetected(decodedText));
+        },
+        () => {}
+      )
+      .catch(() => {
+        settled = true;
+        onFail("Couldn't access the camera. Make sure this page is loaded over https:// and camera permission is allowed.");
+      });
+    return () => { if (!settled) { settled = true; html5QrCode.stop().catch(() => {}); } };
+  }, []);
+
+  return (
+    <div>
+      <div id="barcode-reader" style={{ width: "100%", borderRadius: 8, overflow: "hidden", background: "#000" }} />
+      <div style={{ fontSize: 11.5, color: COLORS.textFaint, marginTop: 8, textAlign: "center" }}>Point the camera at a barcode</div>
+    </div>
+  );
+}
+
 function NutritionTab({ bwEntries, unit, foodEntries, addFood, deleteFood, profile, saveProfile, favoriteFoods, addFavoriteFood, deleteFavoriteFood }) {
   const [date, setDate] = useState(todayStr());
   const [name, setName] = useState("");
@@ -1587,6 +1654,10 @@ function NutritionTab({ bwEntries, unit, foodEntries, addFood, deleteFood, profi
   const [carbs, setCarbs] = useState("");
   const [fat, setFat] = useState("");
   const [alsoFavorite, setAlsoFavorite] = useState(false);
+  const [scanStatus, setScanStatus] = useState("closed"); // closed | scanning | loading | found | notfound | error
+  const [scanProduct, setScanProduct] = useState(null); // { name, per100 }
+  const [scanGrams, setScanGrams] = useState("100");
+  const [scanError, setScanError] = useState("");
 
   const latestWeightKg = bwEntries.length ? bwEntries[bwEntries.length - 1].weightKg : null;
   const activity = ACTIVITY_LEVELS.find((a) => a.value === profile.activityLevel) || ACTIVITY_LEVELS[2];
@@ -1614,6 +1685,36 @@ function NutritionTab({ bwEntries, unit, foodEntries, addFood, deleteFood, profi
 
   const saveEntryAsFavorite = (f) => {
     addFavoriteFood({ id: genId(), name: f.name, calories: f.calories, protein: f.protein, carbs: f.carbs, fat: f.fat });
+  };
+
+  const handleDetected = async (barcode) => {
+    setScanStatus("loading");
+    const result = await lookupBarcode(barcode);
+    if (result.status === "found") {
+      setScanProduct({ name: result.name, per100: result.per100 });
+      setScanGrams("100");
+      setScanStatus("found");
+    } else if (result.status === "notfound") {
+      setScanStatus("notfound");
+    } else {
+      setScanError("Couldn't reach the product database. Check your connection and try again.");
+      setScanStatus("error");
+    }
+  };
+  const handleScanFail = (msg) => { setScanError(msg); setScanStatus("error"); };
+  const closeScanner = () => { setScanStatus("closed"); setScanProduct(null); };
+  const addScannedFood = () => {
+    const grams = parseFloat(scanGrams);
+    if (!scanProduct || !(grams > 0)) return;
+    const factor = grams / 100;
+    addFood({
+      id: genId(), date, name: `${scanProduct.name} (${grams}g)`,
+      calories: scanProduct.per100.calories * factor,
+      protein: scanProduct.per100.protein * factor,
+      carbs: scanProduct.per100.carbs * factor,
+      fat: scanProduct.per100.fat * factor,
+    });
+    closeScanner();
   };
 
   const todaysFood = foodEntries.filter((f) => f.date === date).sort((a, b) => (a.id < b.id ? 1 : -1));
@@ -1730,6 +1831,60 @@ function NutritionTab({ bwEntries, unit, foodEntries, addFood, deleteFood, profi
           <input type="date" value={date} onChange={(e) => setDate(e.target.value)}
             style={{ padding: "6px 8px", borderRadius: 6, border: `1px solid ${COLORS.line}`, background: COLORS.surfaceRaised, color: COLORS.text, fontSize: 12 }} />
         </div>
+
+        <button onClick={() => { setScanStatus("scanning"); setScanError(""); }}
+          className="flex items-center justify-center" style={{ gap: 6, width: "100%", padding: "9px 0", borderRadius: 7, border: `1px solid ${COLORS.line}`, background: COLORS.surfaceRaised, color: COLORS.text, fontSize: 12.5, fontWeight: 600, cursor: "pointer", marginBottom: 12 }}>
+          <Camera size={14} /> SCAN BARCODE
+        </button>
+
+        {scanStatus === "scanning" && (
+          <div style={{ background: COLORS.surfaceRaised, border: `1px solid ${COLORS.line}`, borderRadius: 8, padding: 10, marginBottom: 12 }}>
+            <BarcodeScanner onDetected={handleDetected} onFail={handleScanFail} />
+            <button onClick={closeScanner} style={{ width: "100%", marginTop: 8, padding: "7px 0", borderRadius: 6, border: `1px solid ${COLORS.line}`, background: "transparent", color: COLORS.textMuted, fontSize: 12, cursor: "pointer" }}>Cancel</button>
+          </div>
+        )}
+
+        {scanStatus === "loading" && (
+          <div style={{ background: COLORS.surfaceRaised, borderRadius: 8, padding: 16, marginBottom: 12, textAlign: "center", fontSize: 12.5, color: COLORS.textMuted }}>
+            Looking up product…
+          </div>
+        )}
+
+        {scanStatus === "found" && scanProduct && (
+          <div style={{ background: COLORS.surfaceRaised, border: `1px solid ${CATEGORY_COLORS.Legs}`, borderRadius: 8, padding: 12, marginBottom: 12 }}>
+            <div style={{ fontSize: 13.5, marginBottom: 4 }}>{scanProduct.name}</div>
+            <div style={{ fontSize: 11, color: COLORS.textFaint, marginBottom: 10 }}>
+              per 100g: {Math.round(scanProduct.per100.calories)} kcal · P{fmt(scanProduct.per100.protein)} C{fmt(scanProduct.per100.carbs)} F{fmt(scanProduct.per100.fat)}
+            </div>
+            <div className="flex items-center" style={{ gap: 8, marginBottom: 10 }}>
+              <label style={{ fontSize: 11.5, color: COLORS.textMuted }}>Grams eaten</label>
+              <input type="number" value={scanGrams} onChange={(e) => setScanGrams(e.target.value)}
+                style={{ width: 80, padding: "6px 8px", borderRadius: 6, border: `1px solid ${COLORS.line}`, background: COLORS.surface, color: COLORS.text, fontSize: 13, fontFamily: "'IBM Plex Mono', monospace" }} />
+            </div>
+            <div className="flex" style={{ gap: 8 }}>
+              <button onClick={addScannedFood} disabled={!(parseFloat(scanGrams) > 0)}
+                style={{ flex: 1, padding: "9px 0", borderRadius: 7, border: "none", background: parseFloat(scanGrams) > 0 ? CATEGORY_COLORS.Legs : COLORS.line, color: parseFloat(scanGrams) > 0 ? "#fff" : COLORS.textFaint, fontWeight: 700, fontSize: 12.5, cursor: parseFloat(scanGrams) > 0 ? "pointer" : "not-allowed" }}>
+                Add to Log
+              </button>
+              <button onClick={closeScanner} style={{ padding: "9px 14px", borderRadius: 7, border: `1px solid ${COLORS.line}`, background: "transparent", color: COLORS.textMuted, fontSize: 12.5, cursor: "pointer" }}>Cancel</button>
+            </div>
+          </div>
+        )}
+
+        {scanStatus === "notfound" && (
+          <div style={{ background: COLORS.surfaceRaised, border: `1px solid ${COLORS.line}`, borderRadius: 8, padding: 12, marginBottom: 12, fontSize: 12.5, color: COLORS.textMuted }}>
+            That product isn't in the database. You can enter it manually below.
+            <button onClick={closeScanner} style={{ display: "block", marginTop: 8, padding: "7px 12px", borderRadius: 6, border: `1px solid ${COLORS.line}`, background: "transparent", color: COLORS.text, fontSize: 12, cursor: "pointer" }}>OK</button>
+          </div>
+        )}
+
+        {scanStatus === "error" && (
+          <div style={{ background: COLORS.surfaceRaised, border: `1px solid ${CATEGORY_COLORS.Push}`, borderRadius: 8, padding: 12, marginBottom: 12, fontSize: 12.5, color: COLORS.textMuted }}>
+            {scanError}
+            <button onClick={closeScanner} style={{ display: "block", marginTop: 8, padding: "7px 12px", borderRadius: 6, border: `1px solid ${COLORS.line}`, background: "transparent", color: COLORS.text, fontSize: 12, cursor: "pointer" }}>OK</button>
+          </div>
+        )}
+
         <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Food or meal name"
           style={{ width: "100%", padding: "9px 10px", borderRadius: 7, border: `1px solid ${COLORS.line}`, background: COLORS.surfaceRaised, color: COLORS.text, fontSize: 13.5, marginBottom: 10 }} />
         <div className="flex" style={{ gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
