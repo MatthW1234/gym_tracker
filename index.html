@@ -184,6 +184,15 @@ function Camera({ size, color = "currentColor", style }) {
     </IconWrap>
   );
 }
+function AlertTriangle({ size, color = "currentColor", style }) {
+  return (
+    <IconWrap size={size} style={style}>
+      <path d="M12 3.5L22 20H2L12 3.5z" stroke={color} strokeWidth="2" strokeLinejoin="round" />
+      <line x1="12" y1="9.5" x2="12" y2="14" stroke={color} strokeWidth="2" strokeLinecap="round" />
+      <circle cx="12" cy="17" r="0.9" fill={color} stroke="none" />
+    </IconWrap>
+  );
+}
 function Circle({ size, color = "currentColor", style }) {
   return <IconWrap size={size} style={style}><circle cx="12" cy="12" r="8" stroke={color} strokeWidth="2" /></IconWrap>;
 }
@@ -484,6 +493,11 @@ async function lookupBarcode(barcode) {
 
 // ================= STORAGE (localStorage-backed, same async interface) =================
 const STORAGE_PREFIX = "ironlog:";
+let storageErrorListeners = [];
+function onStorageError(cb) {
+  storageErrorListeners.push(cb);
+  return () => { storageErrorListeners = storageErrorListeners.filter((l) => l !== cb); };
+}
 async function loadJSON(key, fallback) {
   try {
     const raw = localStorage.getItem(STORAGE_PREFIX + key);
@@ -491,7 +505,12 @@ async function loadJSON(key, fallback) {
   } catch { return fallback; }
 }
 async function saveJSON(key, value) {
-  try { localStorage.setItem(STORAGE_PREFIX + key, JSON.stringify(value)); } catch (e) { console.error("storage error", e); }
+  try {
+    localStorage.setItem(STORAGE_PREFIX + key, JSON.stringify(value));
+  } catch (e) {
+    console.error("storage error", e);
+    storageErrorListeners.forEach((cb) => { try { cb(e, key); } catch {} });
+  }
 }
 
 // ================= LIGHTWEIGHT CHARTS (no external chart library) =================
@@ -673,6 +692,13 @@ function GymTracker() {
   const [profile, setProfile] = useState({ heightCm: 175, age: 30, sex: "male", activityLevel: "moderate", goal: "maintain" });
   const [loaded, setLoaded] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [storageError, setStorageError] = useState(null);
+  useEffect(() => {
+    const unsub = onStorageError((err, key) => {
+      setStorageError(`Couldn't save your last change (${key.replace(/_/g, " ")}). Your device's storage may be full — try freeing up space, then export a backup from Settings as a safety net.`);
+    });
+    return unsub;
+  }, []);
 
   useEffect(() => {
     (async () => {
@@ -954,6 +980,14 @@ function GymTracker() {
       {showSettings && (
         <div style={{ padding: "0 20px 16px", borderBottom: `1px solid ${COLORS.line}` }}>
           <SettingsPanel exercises={exercises} entries={entries} bwEntries={bwEntries} routines={routines} foodEntries={foodEntries} onClose={() => setShowSettings(false)} />
+        </div>
+      )}
+
+      {storageError && (
+        <div style={{ margin: "0 20px 16px", padding: "12px 14px", borderRadius: 10, background: CATEGORY_COLORS.Push + "1a", border: `1px solid ${CATEGORY_COLORS.Push}66`, display: "flex", gap: 10, alignItems: "flex-start" }}>
+          <AlertTriangle size={16} color={CATEGORY_COLORS.Push} style={{ flexShrink: 0, marginTop: 1 }} />
+          <div style={{ flex: 1, fontSize: 12.5, color: COLORS.text, lineHeight: 1.4 }}>{storageError}</div>
+          <button onClick={() => setStorageError(null)} style={{ background: "none", border: "none", color: COLORS.textFaint, cursor: "pointer", flexShrink: 0 }}><X size={14} /></button>
         </div>
       )}
 
@@ -2586,8 +2620,56 @@ function SettingsPanel({ exercises, entries, bwEntries, routines, foodEntries, o
   );
 }
 
+// ================= ERROR BOUNDARY =================
+// Catches unexpected render errors anywhere in the app so a bug shows a recoverable screen
+// instead of a blank white page. Deliberately avoids class-field syntax (arrow-function
+// properties) since only @babel/preset-react is loaded here, not the class-properties plugin.
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+  componentDidCatch(error, info) {
+    console.error("Iron Log crashed:", error, info);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{
+          minHeight: "100vh", background: COLORS.bg, color: COLORS.text, fontFamily: "'Inter', sans-serif",
+          display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 28, textAlign: "center",
+        }}>
+          <div style={{ width: 48, height: 48, borderRadius: 12, background: CATEGORY_COLORS.Push, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 18 }}>
+            <AlertTriangle size={24} color="#fff" />
+          </div>
+          <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: 26, letterSpacing: 1, marginBottom: 8 }}>SOMETHING WENT WRONG</div>
+          <div style={{ fontSize: 13, color: COLORS.textMuted, maxWidth: 320, lineHeight: 1.5, marginBottom: 22 }}>
+            Iron Log hit an unexpected error and had to stop. Your logged data is untouched — it's stored separately from the app itself. Reloading should fix this.
+          </div>
+          <button onClick={() => window.location.reload()}
+            style={{ padding: "12px 28px", borderRadius: 8, border: "none", background: COLORS.text, color: COLORS.bg, fontWeight: 700, fontSize: 14, cursor: "pointer" }}>
+            Reload App
+          </button>
+          {this.state.error && (
+            <details style={{ marginTop: 22, fontSize: 11, color: COLORS.textFaint, maxWidth: 340, textAlign: "left" }}>
+              <summary style={{ cursor: "pointer", textAlign: "center" }}>Technical details</summary>
+              <pre style={{ whiteSpace: "pre-wrap", wordBreak: "break-word", marginTop: 8, fontFamily: "'IBM Plex Mono', monospace", fontSize: 10.5 }}>
+                {String((this.state.error && this.state.error.stack) || this.state.error)}
+              </pre>
+            </details>
+          )}
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 const root = ReactDOM.createRoot(document.getElementById("root"));
-root.render(<GymTracker />);
+root.render(<ErrorBoundary><GymTracker /></ErrorBoundary>);
 </script>
 
 <script>
