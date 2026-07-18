@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5, viewport-fit=cover" />
 <title>Iron Log — Gym Tracker</title>
 <meta name="theme-color" content="#18181B" />
+<meta name="color-scheme" content="only dark" />
 <meta name="mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -14,12 +15,18 @@
 <link rel="icon" href="icon-192.png" />
 <script>
   // Applies the saved theme's CSS variables before the app mounts, so light-mode users don't
-  // see a flash of the dark default while React boots and loads data from storage.
+  // see a flash of the dark default while React boots and loads data from storage. Also sets
+  // color-scheme, which is the documented way to opt out of Android Chrome / Samsung Internet's
+  // "Auto Dark Theme for Web Contents" — without it, that feature can re-darken an already-light
+  // page into a muddy, low-contrast dark look instead of respecting our own light palette.
   (function () {
     try {
       var raw = localStorage.getItem("ironlog:theme_pref");
       var theme = raw ? JSON.parse(raw) : "dark";
       window.__ironLogInitialTheme = theme;
+      document.documentElement.style.colorScheme = theme;
+      var scheme = document.querySelector('meta[name="color-scheme"]');
+      if (scheme) scheme.setAttribute("content", theme === "light" ? "only light" : "only dark");
       if (theme === "light") {
         document.documentElement.style.setProperty("--app-bg", "#F7F6F3");
         document.documentElement.style.setProperty("--placeholder-color", "#9C9A94");
@@ -277,6 +284,9 @@ function applyTheme(themeName) {
   document.documentElement.style.setProperty("--scrollbar-thumb", COLORS.line);
   document.documentElement.style.setProperty("--app-bg", COLORS.bg);
   document.documentElement.style.setProperty("--placeholder-color", COLORS.textFaint);
+  document.documentElement.style.colorScheme = themeName;
+  const scheme = document.querySelector('meta[name="color-scheme"]');
+  if (scheme) scheme.setAttribute("content", themeName === "light" ? "only light" : "only dark");
   const meta = document.querySelector('meta[name="theme-color"]');
   if (meta) meta.setAttribute("content", COLORS.bg);
 }
