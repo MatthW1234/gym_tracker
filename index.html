@@ -12,16 +12,35 @@
 <link rel="manifest" href="manifest.json" />
 <link rel="apple-touch-icon" href="icon-192.png" />
 <link rel="icon" href="icon-192.png" />
+<script>
+  // Applies the saved theme's CSS variables before the app mounts, so light-mode users don't
+  // see a flash of the dark default while React boots and loads data from storage.
+  (function () {
+    try {
+      var raw = localStorage.getItem("ironlog:theme_pref");
+      var theme = raw ? JSON.parse(raw) : "dark";
+      window.__ironLogInitialTheme = theme;
+      if (theme === "light") {
+        document.documentElement.style.setProperty("--app-bg", "#F7F6F3");
+        document.documentElement.style.setProperty("--placeholder-color", "#9C9A94");
+        document.documentElement.style.setProperty("--scrollbar-thumb", "#E1DFD9");
+        var meta = document.querySelector('meta[name="theme-color"]');
+        if (meta) meta.setAttribute("content", "#F7F6F3");
+      }
+    } catch (e) {}
+  })();
+</script>
 <style>
+  :root { --app-bg: #18181B; --placeholder-color: #5A5A5F; --scrollbar-thumb: #38383D; }
   @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-  html, body { margin: 0; padding: 0; background: #18181B; height: 100%; }
+  html, body { margin: 0; padding: 0; background: var(--app-bg); height: 100%; }
   body { font-family: 'Inter', sans-serif; overscroll-behavior-y: none; }
   #root { min-height: 100vh; min-height: 100dvh; }
   input, select { font-family: 'Inter', sans-serif; }
-  input::placeholder { color: #5A5A5F; }
+  input::placeholder { color: var(--placeholder-color); }
   ::-webkit-scrollbar { height: 6px; width: 6px; }
-  ::-webkit-scrollbar-thumb { background: #38383D; border-radius: 3px; }
+  ::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border-radius: 3px; }
   @keyframes ironSlideRight { from { transform: translateX(18px); opacity: 0.4; } to { transform: translateX(0); opacity: 1; } }
   @keyframes ironSlideLeft { from { transform: translateX(-18px); opacity: 0.4; } to { transform: translateX(0); opacity: 1; } }
   .flex { display: flex; }
@@ -71,6 +90,28 @@ function Settings({ size, color = "currentColor", style }) {
     <IconWrap size={size} style={style}>
       <circle cx="12" cy="12" r="3" stroke={color} strokeWidth="2" />
       <path d="M19.4 13a7.6 7.6 0 0 0 0-2l2-1.5-2-3.4-2.3.9a7.7 7.7 0 0 0-1.7-1l-.4-2.5H9.9l-.4 2.5a7.7 7.7 0 0 0-1.7 1l-2.3-.9-2 3.4L5.5 11a7.6 7.6 0 0 0 0 2l-2 1.5 2 3.4 2.3-.9a7.7 7.7 0 0 0 1.7 1l.4 2.5h4.1l.4-2.5a7.7 7.7 0 0 0 1.7-1l2.3.9 2-3.4-2-1.5z" stroke={color} strokeWidth="1.6" strokeLinejoin="round" />
+    </IconWrap>
+  );
+}
+function Sun({ size, color = "currentColor", style }) {
+  return (
+    <IconWrap size={size} style={style}>
+      <circle cx="12" cy="12" r="4.5" stroke={color} strokeWidth="2" />
+      <line x1="12" y1="2" x2="12" y2="4.5" stroke={color} strokeWidth="2" strokeLinecap="round" />
+      <line x1="12" y1="19.5" x2="12" y2="22" stroke={color} strokeWidth="2" strokeLinecap="round" />
+      <line x1="2" y1="12" x2="4.5" y2="12" stroke={color} strokeWidth="2" strokeLinecap="round" />
+      <line x1="19.5" y1="12" x2="22" y2="12" stroke={color} strokeWidth="2" strokeLinecap="round" />
+      <line x1="4.9" y1="4.9" x2="6.6" y2="6.6" stroke={color} strokeWidth="2" strokeLinecap="round" />
+      <line x1="17.4" y1="17.4" x2="19.1" y2="19.1" stroke={color} strokeWidth="2" strokeLinecap="round" />
+      <line x1="4.9" y1="19.1" x2="6.6" y2="17.4" stroke={color} strokeWidth="2" strokeLinecap="round" />
+      <line x1="17.4" y1="6.6" x2="19.1" y2="4.9" stroke={color} strokeWidth="2" strokeLinecap="round" />
+    </IconWrap>
+  );
+}
+function Moon({ size, color = "currentColor", style }) {
+  return (
+    <IconWrap size={size} style={style}>
+      <path d="M20 14.5A8.5 8.5 0 1 1 9.5 4a6.8 6.8 0 0 0 10.5 10.5z" stroke={color} strokeWidth="2" strokeLinejoin="round" />
     </IconWrap>
   );
 }
@@ -219,10 +260,26 @@ function Pencil({ size, color = "currentColor", style }) {
 }
 
 // ================= TOKENS =================
-const COLORS = {
+const DARK_PALETTE = {
   bg: "#18181B", surface: "#212124", surfaceRaised: "#28282C", line: "#38383D",
   text: "#F2F0EA", textMuted: "#8E8E93", textFaint: "#5A5A5F",
 };
+const LIGHT_PALETTE = {
+  bg: "#F7F6F3", surface: "#FFFFFF", surfaceRaised: "#EFEEEA", line: "#E1DFD9",
+  text: "#1C1C1E", textMuted: "#6B6A66", textFaint: "#9C9A94",
+};
+// COLORS is intentionally a single mutable object (not reassigned) so every component — which
+// reads COLORS.xxx directly rather than via context — picks up new values the next time it
+// renders, without needing to thread a theme prop through the whole tree.
+const COLORS = { ...DARK_PALETTE };
+function applyTheme(themeName) {
+  Object.assign(COLORS, themeName === "light" ? LIGHT_PALETTE : DARK_PALETTE);
+  document.documentElement.style.setProperty("--scrollbar-thumb", COLORS.line);
+  document.documentElement.style.setProperty("--app-bg", COLORS.bg);
+  document.documentElement.style.setProperty("--placeholder-color", COLORS.textFaint);
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute("content", COLORS.bg);
+}
 const CATEGORY_COLORS = { Push: "#D6483F", Pull: "#3573A5", Legs: "#DDA83A", Core: "#4C9A6A", Other: "#B5B5BA" };
 const CATEGORIES = Object.keys(CATEGORY_COLORS);
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -692,6 +749,16 @@ function GymTracker() {
   const [profile, setProfile] = useState({ heightCm: 175, age: 30, sex: "male", activityLevel: "moderate", goal: "maintain" });
   const [loaded, setLoaded] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [theme, setThemeState] = useState(() => {
+    const initial = (typeof window !== "undefined" && window.__ironLogInitialTheme) || "dark";
+    applyTheme(initial);
+    return initial;
+  });
+  const setTheme = useCallback((next) => {
+    applyTheme(next);
+    setThemeState(next);
+    saveJSON("theme_pref", next);
+  }, []);
   const [storageError, setStorageError] = useState(null);
   useEffect(() => {
     const unsub = onStorageError((err, key) => {
@@ -979,7 +1046,7 @@ function GymTracker() {
 
       {showSettings && (
         <div style={{ padding: "0 20px 16px", borderBottom: `1px solid ${COLORS.line}` }}>
-          <SettingsPanel exercises={exercises} entries={entries} bwEntries={bwEntries} routines={routines} foodEntries={foodEntries} onClose={() => setShowSettings(false)} />
+          <SettingsPanel exercises={exercises} entries={entries} bwEntries={bwEntries} routines={routines} foodEntries={foodEntries} onClose={() => setShowSettings(false)} theme={theme} setTheme={setTheme} />
         </div>
       )}
 
@@ -2505,9 +2572,9 @@ function MuscleBreakdown({ byMuscle, unit, title = "BY MUSCLE GROUP" }) {
 }
 
 // ================= SETTINGS PANEL (Backup & Restore) =================
-const BACKUP_KEYS = ["exercises", "workout_entries", "bodyweight_entries", "unit_pref", "routines", "week_plan", "food_entries", "favorite_foods", "profile"];
+const BACKUP_KEYS = ["exercises", "workout_entries", "bodyweight_entries", "unit_pref", "theme_pref", "routines", "week_plan", "food_entries", "favorite_foods", "profile"];
 
-function SettingsPanel({ exercises, entries, bwEntries, routines, foodEntries, onClose }) {
+function SettingsPanel({ exercises, entries, bwEntries, routines, foodEntries, onClose, theme, setTheme }) {
   const [status, setStatus] = useState(null); // { type: "success" | "error", message }
   const [pendingImport, setPendingImport] = useState(null); // parsed backup data awaiting confirmation
   const [importFileName, setImportFileName] = useState("");
@@ -2575,9 +2642,27 @@ function SettingsPanel({ exercises, entries, bwEntries, routines, foodEntries, o
 
   return (
     <div style={{ background: COLORS.surface, border: `1px solid ${COLORS.line}`, borderRadius: 10, padding: 16, marginTop: 14 }}>
-      <div className="flex items-center justify-between" style={{ marginBottom: 12 }}>
-        <span style={{ fontSize: 12, color: COLORS.textMuted, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: 0.5 }}>BACKUP &amp; RESTORE</span>
+      <div className="flex items-center justify-between" style={{ marginBottom: 16 }}>
+        <span style={{ fontSize: 12, color: COLORS.textMuted, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: 0.5 }}>SETTINGS</span>
         <button onClick={onClose} style={{ background: "none", border: "none", color: COLORS.textFaint, cursor: "pointer" }}><X size={16} /></button>
+      </div>
+
+      <div style={{ marginBottom: 18 }}>
+        <div style={{ fontSize: 11, color: COLORS.textMuted, marginBottom: 8 }}>APPEARANCE</div>
+        <div style={{ maxWidth: 220 }}>
+          <Segmented
+            options={[
+              { value: "dark", label: "Dark" },
+              { value: "light", label: "Light" },
+            ]}
+            value={theme}
+            onChange={setTheme}
+          />
+        </div>
+      </div>
+
+      <div className="flex items-center" style={{ gap: 7, marginBottom: 12 }}>
+        <span style={{ fontSize: 12, color: COLORS.textMuted, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: 0.5 }}>BACKUP &amp; RESTORE</span>
       </div>
 
       <div style={{ fontSize: 11.5, color: COLORS.textFaint, marginBottom: 14 }}>
