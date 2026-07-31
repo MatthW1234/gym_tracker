@@ -293,8 +293,22 @@ const LIGHT_PALETTE = {
 // reads COLORS.xxx directly rather than via context — picks up new values the next time it
 // renders, without needing to thread a theme prop through the whole tree.
 const COLORS = { ...DARK_PALETTE };
+
+// Category/cardio accent colors also get a genuinely distinct dark-mode palette rather than
+// reusing the light-mode hex values — mid-saturation colors tuned for a white background read
+// a bit flat against a dark one, so dark mode gets brighter, more saturated versions instead.
+const CATEGORY_COLORS_LIGHT = { Push: "#D6483F", Pull: "#3573A5", Legs: "#DDA83A", Core: "#4C9A6A", Other: "#B5B5BA" };
+const CATEGORY_COLORS_DARK = { Push: "#FF6259", Pull: "#4FA6E8", Legs: "#FFC247", Core: "#4FD98A", Other: "#C9C9D0" };
+const CARDIO_COLOR_LIGHT = "#8C5FC2";
+const CARDIO_COLOR_DARK = "#B285F0";
+const CATEGORY_COLORS = { ...CATEGORY_COLORS_DARK };
+let CARDIO_COLOR = CARDIO_COLOR_DARK;
+
 function applyTheme(themeName) {
   Object.assign(COLORS, themeName === "light" ? LIGHT_PALETTE : DARK_PALETTE);
+  Object.assign(CATEGORY_COLORS, themeName === "light" ? CATEGORY_COLORS_LIGHT : CATEGORY_COLORS_DARK);
+  CARDIO_COLOR = themeName === "light" ? CARDIO_COLOR_LIGHT : CARDIO_COLOR_DARK;
+  computeMuscleColors();
   document.documentElement.style.setProperty("--scrollbar-thumb", COLORS.line);
   document.documentElement.style.setProperty("--app-bg", COLORS.bg);
   document.documentElement.style.setProperty("--placeholder-color", COLORS.textFaint);
@@ -304,7 +318,6 @@ function applyTheme(themeName) {
   const meta = document.querySelector('meta[name="theme-color"]');
   if (meta) meta.setAttribute("content", COLORS.bg);
 }
-const CATEGORY_COLORS = { Push: "#D6483F", Pull: "#3573A5", Legs: "#DDA83A", Core: "#4C9A6A", Other: "#B5B5BA" };
 const CATEGORIES = Object.keys(CATEGORY_COLORS);
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
@@ -327,14 +340,19 @@ function shadeHex(hex, percent) {
   r = Math.min(255, Math.max(0, r)); g = Math.min(255, Math.max(0, g)); b = Math.min(255, Math.max(0, b));
   return "#" + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
 }
+// MUSCLE_COLORS is derived from CATEGORY_COLORS (shaded variants per muscle within a category),
+// so it needs recomputing whenever the theme — and therefore CATEGORY_COLORS — changes.
 const MUSCLE_COLORS = {};
-Object.entries(MUSCLE_GROUPS).forEach(([cat, muscles]) => {
-  muscles.forEach((m, i) => {
-    const steps = muscles.length;
-    const factor = steps <= 1 ? 0 : (i / (steps - 1)) * 0.5 - 0.25;
-    MUSCLE_COLORS[m] = shadeHex(CATEGORY_COLORS[cat], factor);
+function computeMuscleColors() {
+  Object.entries(MUSCLE_GROUPS).forEach(([cat, muscles]) => {
+    muscles.forEach((m, i) => {
+      const steps = muscles.length;
+      const factor = steps <= 1 ? 0 : (i / (steps - 1)) * 0.5 - 0.25;
+      MUSCLE_COLORS[m] = shadeHex(CATEGORY_COLORS[cat], factor);
+    });
   });
-});
+}
+computeMuscleColors();
 
 function categoryOf(exercise) {
   return MUSCLE_TO_CATEGORY[exercise?.muscle] || "Other";
@@ -435,7 +453,6 @@ function kgToLb(kg) { return kg * 2.20462; }
 function lbToKg(lb) { return lb / 2.20462; }
 
 // ================= CARDIO =================
-const CARDIO_COLOR = "#8C5FC2"; // purple — distinct from the five strength-category plate colors
 const CARDIO_ACTIVITIES = ["Running", "Walking", "Hiking", "Cycling", "Rowing", "Swimming", "Sled Push/Pull", "Stair Climber", "Jump Rope", "Elliptical", "Other Cardio"];
 // Sports get a simpler log flow — just activity, date, and duration, no distance/load fields.
 const SPORTS_LIST = ["Football", "Basketball", "Tennis", "Rugby", "Boxing", "Martial Arts", "Climbing", "Golf", "Squash", "Padel", "Volleyball", "Hockey", "Cricket", "Badminton", "Other Sport"];
@@ -483,6 +500,75 @@ function computePaceSpeed(durationMin, meters, unit) {
   const distLong = metersToDisplay(meters, longUnit);
   if (distLong <= 0) return null;
   return { pace: formatPace(durationMin / distLong), unit: longUnit, speed: fmt(distLong / (durationMin / 60)) };
+}
+
+// ================= CARDIO PROGRESSION (Cardio activities only — Sports are historical-only) =================
+// Entries logged before entryType existed fall back to checking against the sports lists.
+function cardioEntryType(entry, allSportNames) {
+  if (entry.entryType === "sport" || entry.entryType === "cardio") return entry.entryType;
+  return allSportNames.has(entry.activity) ? "sport" : "cardio";
+}
+// A comparable "how good was this session" metric: pace (min per km/mi, lower is better) when
+// distance is logged, otherwise duration (minutes, longer is better). Two metrics are only
+// comparable when they're the same kind.
+function getCardioMetric(entry, unit) {
+  const durationMin = entry.durationMin;
+  const longUnit = unit === "kg" ? "km" : "mi";
+  const distLong = entry.distanceM > 0 ? metersToDisplay(entry.distanceM, longUnit) : 0;
+  if (distLong > 0 && durationMin > 0) return { kind: "pace", value: durationMin / distLong, unit: longUnit };
+  if (durationMin > 0) return { kind: "duration", value: durationMin };
+  return null;
+}
+// Returns 1 if `a` is meaningfully better than `b`, -1 if worse, 0 if equal/incomparable.
+function compareCardioMetric(a, b) {
+  if (!a || !b || a.kind !== b.kind) return 0;
+  const diffPct = a.kind === "pace" ? (b.value - a.value) / b.value : (a.value - b.value) / b.value;
+  if (diffPct > 0.01) return 1;
+  if (diffPct < -0.01) return -1;
+  return 0;
+}
+function getLastCardioSession(cardioEntries, activity, beforeDate, allSportNames) {
+  const prior = cardioEntries.filter((e) => e.activity === activity && e.date < beforeDate && cardioEntryType(e, allSportNames) === "cardio");
+  if (prior.length === 0) return null;
+  const lastDate = prior.reduce((max, e) => (e.date > max ? e.date : max), prior[0].date);
+  return { date: lastDate, entry: prior.filter((e) => e.date === lastDate)[0] };
+}
+function getCardioBadge(cardioEntries, currentEntry, unit, allSportNames) {
+  if (cardioEntryType(currentEntry, allSportNames) === "sport") return null;
+  const prior = cardioEntries.filter((e) => e.activity === currentEntry.activity && e.date < currentEntry.date && cardioEntryType(e, allSportNames) === "cardio");
+  if (prior.length === 0) return { type: "first" };
+  const curMetric = getCardioMetric(currentEntry, unit);
+  if (!curMetric) return null;
+  let allTimeBest = null;
+  for (const e of prior) {
+    const m = getCardioMetric(e, unit);
+    if (m && m.kind === curMetric.kind && (!allTimeBest || compareCardioMetric(m, allTimeBest) > 0)) allTimeBest = m;
+  }
+  if (allTimeBest && compareCardioMetric(curMetric, allTimeBest) > 0) return { type: "pr" };
+  const lastDate = prior.reduce((max, e) => (e.date > max ? e.date : max), prior[0].date);
+  let lastBest = null;
+  for (const e of prior.filter((e) => e.date === lastDate)) {
+    const m = getCardioMetric(e, unit);
+    if (m && m.kind === curMetric.kind && (!lastBest || compareCardioMetric(m, lastBest) > 0)) lastBest = m;
+  }
+  if (!lastBest) return null;
+  const cmp = compareCardioMetric(curMetric, lastBest);
+  if (cmp > 0) return { type: "up" };
+  if (cmp === 0) return { type: "match" };
+  return null;
+}
+function computeCardioTrendStatus(sessions) {
+  if (sessions.length < 2) return { status: "new", label: "Not enough sessions yet" };
+  const last = sessions[sessions.length - 1];
+  const prior = sessions.slice(Math.max(0, sessions.length - 4), sessions.length - 1);
+  let priorBest = null;
+  for (const s of prior) { if (!priorBest || compareCardioMetric(s.metric, priorBest) > 0) priorBest = s.metric; }
+  if (!priorBest || last.metric.kind !== priorBest.kind) return { status: "new", label: "Not enough comparable sessions yet" };
+  if (compareCardioMetric(last.metric, priorBest) > 0) return { status: "progressing", label: "Progressing" };
+  const avgValue = prior.reduce((s, p) => s + p.metric.value, 0) / prior.length;
+  const worse = last.metric.kind === "pace" ? (last.metric.value - avgValue) / avgValue > 0.03 : (avgValue - last.metric.value) / avgValue > 0.03;
+  if (worse) return { status: "declining", label: "Stalling" };
+  return { status: "steady", label: "Holding steady" };
 }
 
 function fmt(n) { return Math.round(n * 10) / 10; }
@@ -1926,6 +2012,7 @@ function VolumeTab({ exercises, entries, exMap, unit }) {
 // ================= BODYWEIGHT TAB =================
 // ================= CARDIO TAB =================
 function CardioTab({ cardioEntries, unit, addCardio, updateCardio, deleteCardio, customCardioActivities, addCustomCardioActivity, deleteCustomCardioActivity, customSports, addCustomSport, deleteCustomSport }) {
+  const [view, setView] = useState("log"); // "log" | "progress"
   const [mode, setMode] = useState("cardio"); // "cardio" | "sport"
   const [date, setDate] = useState(todayStr());
   const [activity, setActivity] = useState(CARDIO_ACTIVITIES[0]);
@@ -1947,6 +2034,8 @@ function CardioTab({ cardioEntries, unit, addCardio, updateCardio, deleteCardio,
   const [editCalories, setEditCalories] = useState("");
   const [editNotes, setEditNotes] = useState("");
   const [editDate, setEditDate] = useState("");
+
+  const allSportNames = useMemo(() => new Set([...SPORTS_LIST, ...customSports]), [customSports]);
 
   const activityList = mode === "sport" ? [...SPORTS_LIST, ...customSports] : [...CARDIO_ACTIVITIES, ...customCardioActivities];
   const customList = mode === "sport" ? customSports : customCardioActivities;
@@ -1980,7 +2069,7 @@ function CardioTab({ cardioEntries, unit, addCardio, updateCardio, deleteCardio,
     if (!canSubmit) return;
     const loadNum = parseFloat(load);
     addCardio({
-      id: genId(), date, activity,
+      id: genId(), date, activity, entryType: mode,
       durationMin: durationNum > 0 ? durationNum : null,
       distanceM: mode === "sport" ? null : (distanceNum > 0 ? distanceToMeters(distanceNum, distUnit) : null),
       loadKg: mode === "sport" ? null : (loadNum > 0 ? (unit === "kg" ? loadNum : lbToKg(loadNum)) : null),
@@ -1991,6 +2080,7 @@ function CardioTab({ cardioEntries, unit, addCardio, updateCardio, deleteCardio,
   };
 
   const todaysCardio = cardioEntries.filter((e) => e.date === date).sort((a, b) => (a.id < b.id ? 1 : -1));
+  const lastCardioSession = mode === "cardio" ? getLastCardioSession(cardioEntries, activity, date, allSportNames) : null;
 
   const startEdit = (e) => {
     setEditingId(e.id);
@@ -2009,8 +2099,9 @@ function CardioTab({ cardioEntries, unit, addCardio, updateCardio, deleteCardio,
     const d = parseFloat(editDuration), dist = parseFloat(editDistance);
     if (!editActivity || !editDate || !(d > 0 || dist > 0)) return;
     const loadNum = parseFloat(editLoad);
+    const isNowSport = SPORTS_LIST.includes(editActivity) || customSports.includes(editActivity);
     updateCardio(editingId, {
-      activity: editActivity, date: editDate,
+      activity: editActivity, date: editDate, entryType: isNowSport ? "sport" : "cardio",
       durationMin: d > 0 ? d : null,
       distanceM: dist > 0 ? distanceToMeters(dist, editDistUnit) : null,
       loadKg: loadNum > 0 ? (unit === "kg" ? loadNum : lbToKg(loadNum)) : null,
@@ -2024,6 +2115,11 @@ function CardioTab({ cardioEntries, unit, addCardio, updateCardio, deleteCardio,
 
   return (
     <div className="flex flex-col" style={{ gap: 20 }}>
+      <Segmented options={[{ value: "log", label: "Log" }, { value: "progress", label: "Progress" }]} value={view} onChange={setView} />
+      {view === "progress" ? (
+        <CardioProgressView cardioEntries={cardioEntries} unit={unit} customCardioActivities={customCardioActivities} allSportNames={allSportNames} />
+      ) : (
+      <>
       <div style={{ background: COLORS.surface, border: `1px solid ${COLORS.line}`, borderRadius: 10, padding: 16 }}>
         <div className="flex items-center justify-between" style={{ marginBottom: 14 }}>
           <span style={{ fontSize: 12, color: COLORS.textMuted, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: 0.5 }}>LOG CARDIO</span>
@@ -2070,6 +2166,20 @@ function CardioTab({ cardioEntries, unit, addCardio, updateCardio, deleteCardio,
                 ))}
               </div>
             )}
+          </div>
+        )}
+
+        {lastCardioSession && (
+          <div style={{ marginBottom: 12, padding: "8px 10px", background: COLORS.surfaceRaised, borderRadius: 7, border: `1px solid ${COLORS.line}` }}>
+            <div style={{ fontSize: 10, color: COLORS.textFaint, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: 0.4, marginBottom: 3 }}>LAST TIME · {lastCardioSession.date}</div>
+            <div style={{ fontSize: 12.5, color: COLORS.textMuted, fontFamily: "'IBM Plex Mono', monospace" }}>
+              {(() => {
+                const e = lastCardioSession.entry;
+                const ps = computePaceSpeed(e.durationMin, e.distanceM, unit);
+                const distStr = formatDistance(e.distanceM, unit);
+                return [e.durationMin ? `${e.durationMin} min` : null, distStr, ps ? `${ps.pace}/${ps.unit}` : null].filter(Boolean).join("   ");
+              })()}
+            </div>
           </div>
         )}
 
@@ -2148,7 +2258,8 @@ function CardioTab({ cardioEntries, unit, addCardio, updateCardio, deleteCardio,
                   <div key={e.id} style={{ background: COLORS.surfaceRaised, border: `1px solid ${CARDIO_COLOR}`, borderRadius: 8, padding: 10 }}>
                     <select value={editActivity} onChange={(ev) => { setEditActivity(ev.target.value); setEditDistUnit(defaultDistUnit(ev.target.value, unit)); }}
                       style={{ width: "100%", padding: "7px 9px", marginBottom: 8, borderRadius: 6, border: `1px solid ${COLORS.line}`, background: COLORS.surface, color: COLORS.text, fontSize: 12.5 }}>
-                      {CARDIO_ACTIVITIES.map((a) => <option key={a} value={a}>{a}</option>)}
+                      <optgroup label="Cardio">{[...CARDIO_ACTIVITIES, ...customCardioActivities].map((a) => <option key={a} value={a}>{a}</option>)}</optgroup>
+                      <optgroup label="Sport">{[...SPORTS_LIST, ...customSports].map((a) => <option key={a} value={a}>{a}</option>)}</optgroup>
                     </select>
                     <div className="flex" style={{ gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
                       <input type="number" value={editDuration} onChange={(ev) => setEditDuration(ev.target.value)} placeholder="min"
@@ -2180,12 +2291,24 @@ function CardioTab({ cardioEntries, unit, addCardio, updateCardio, deleteCardio,
               const ps = computePaceSpeed(e.durationMin, e.distanceM, unit);
               const distStr = formatDistance(e.distanceM, unit);
               const loadDisplay = e.loadKg != null ? fmt(unit === "kg" ? e.loadKg : kgToLb(e.loadKg)) : null;
+              const badge = getCardioBadge(cardioEntries, e, unit, allSportNames);
               return (
                 <div key={e.id} style={{ background: COLORS.surface, border: `1px solid ${COLORS.line}`, borderRadius: 8, padding: "9px 12px" }}>
                   <div className="flex items-center justify-between">
-                    <div className="flex items-center" style={{ gap: 10 }}>
+                    <div className="flex items-center" style={{ gap: 10, flexWrap: "wrap" }}>
                       <div style={{ width: 7, height: 7, borderRadius: 99, background: CARDIO_COLOR }} />
                       <span style={{ fontSize: 13.5 }}>{e.activity}</span>
+                      {badge?.type === "pr" && (
+                        <span className="flex items-center" style={{ gap: 3, fontSize: 10, fontWeight: 700, color: CATEGORY_COLORS.Legs, background: CATEGORY_COLORS.Legs + "22", padding: "2px 7px", borderRadius: 99 }}>
+                          <Trophy size={10} /> PR
+                        </span>
+                      )}
+                      {badge?.type === "up" && (
+                        <span style={{ fontSize: 10, fontWeight: 700, color: CATEGORY_COLORS.Core, background: CATEGORY_COLORS.Core + "22", padding: "2px 7px", borderRadius: 99 }}>▲ Improved</span>
+                      )}
+                      {badge?.type === "match" && (
+                        <span style={{ fontSize: 10, color: COLORS.textFaint, background: COLORS.surfaceRaised, padding: "2px 7px", borderRadius: 99 }}>= Matched</span>
+                      )}
                     </div>
                     <div className="flex items-center" style={{ gap: 10 }}>
                       <button onClick={() => startEdit(e)} style={{ background: "none", border: "none", color: COLORS.textFaint, cursor: "pointer" }}><Pencil size={13} /></button>
@@ -2208,6 +2331,92 @@ function CardioTab({ cardioEntries, unit, addCardio, updateCardio, deleteCardio,
           </div>
         )}
       </div>
+      </>
+      )}
+    </div>
+  );
+}
+
+// ================= CARDIO PROGRESS VIEW (Cardio activities only) =================
+function CardioProgressView({ cardioEntries, unit, customCardioActivities, allSportNames }) {
+  const activityOptions = [...CARDIO_ACTIVITIES, ...customCardioActivities];
+  const [activity, setActivity] = useState(activityOptions[0] || "");
+
+  const exEntries = useMemo(
+    () => cardioEntries.filter((e) => e.activity === activity && cardioEntryType(e, allSportNames) === "cardio").sort((a, b) => a.date.localeCompare(b.date)),
+    [cardioEntries, activity, allSportNames]
+  );
+
+  const primaryKind = useMemo(() => {
+    for (let i = exEntries.length - 1; i >= 0; i--) {
+      const m = getCardioMetric(exEntries[i], unit);
+      if (m) return m.kind;
+    }
+    return null;
+  }, [exEntries, unit]);
+
+  const byDate = useMemo(() => {
+    const map = {};
+    for (const e of exEntries) {
+      const m = getCardioMetric(e, unit);
+      if (!m || m.kind !== primaryKind) continue;
+      if (!map[e.date] || compareCardioMetric(m, map[e.date].metric) > 0) map[e.date] = { date: e.date, metric: m };
+    }
+    return Object.values(map).sort((a, b) => a.date.localeCompare(b.date));
+  }, [exEntries, primaryKind, unit]);
+
+  const pr = byDate.reduce((best, d) => (!best || compareCardioMetric(d.metric, best.metric) > 0 ? d : best), null);
+  const trend = useMemo(() => computeCardioTrendStatus(byDate), [byDate]);
+  const TREND_STYLE = {
+    progressing: { icon: TrendingUp, color: CATEGORY_COLORS.Core },
+    steady: { icon: Minus, color: COLORS.textMuted },
+    declining: { icon: TrendingDown, color: CATEGORY_COLORS.Push },
+    new: { icon: Minus, color: COLORS.textFaint },
+  };
+  const chartData = byDate.map((d) => ({ date: d.date, value: d.metric.value }));
+
+  return (
+    <div className="flex flex-col" style={{ gap: 16 }}>
+      <select value={activity} onChange={(e) => setActivity(e.target.value)}
+        style={{ padding: "9px 10px", borderRadius: 7, border: `1px solid ${COLORS.line}`, background: COLORS.surfaceRaised, color: COLORS.text, fontSize: 13.5, maxWidth: 320 }}>
+        {activityOptions.map((a) => <option key={a} value={a}>{a}</option>)}
+      </select>
+      <div style={{ fontSize: 10.5, color: COLORS.textFaint }}>Sports aren't tracked here — this is for Cardio-mode activities only.</div>
+
+      {byDate.length === 0 ? (
+        <EmptyState icon={TrendingUp} title="NO DATA YET" body="Log a few Cardio-mode sessions for this activity and your trend will show up here." />
+      ) : (
+        <>
+          {byDate.length >= 2 && (() => {
+            const t = TREND_STYLE[trend.status]; const TrendIcon = t.icon;
+            return (
+              <div className="flex items-center" style={{ gap: 6, alignSelf: "flex-start", padding: "6px 12px", borderRadius: 99, background: t.color + "1a", border: `1px solid ${t.color}55` }}>
+                <TrendIcon size={13} color={t.color} />
+                <span style={{ fontSize: 12, fontWeight: 600, color: t.color }}>{trend.label}</span>
+              </div>
+            );
+          })()}
+
+          {pr && (
+            <div className="flex" style={{ gap: 12, flexWrap: "wrap" }}>
+              <StatCard
+                label={pr.metric.kind === "pace" ? "BEST PACE" : "LONGEST SESSION"}
+                value={pr.metric.kind === "pace" ? `${formatPace(pr.metric.value)}/${pr.metric.unit}` : `${Math.round(pr.metric.value)} min`}
+                sub={`on ${pr.date}`} color={CARDIO_COLOR}
+              />
+              <StatCard label="SESSIONS TRACKED" value={byDate.length} sub={activity} color={CATEGORY_COLORS.Pull} />
+            </div>
+          )}
+
+          <div style={{ background: COLORS.surface, border: `1px solid ${COLORS.line}`, borderRadius: 10, padding: 16 }}>
+            <div style={{ fontSize: 12, color: COLORS.textMuted, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: 0.5, marginBottom: 12 }}>
+              {primaryKind === "pace" ? `PACE OVER TIME (min/${byDate[0]?.metric.unit})` : "DURATION OVER TIME (min)"}
+            </div>
+            <SimpleLineChart data={chartData} xKey="date" unit={primaryKind === "pace" ? "" : "m"}
+              lines={[{ dataKey: "value", color: CARDIO_COLOR, label: primaryKind === "pace" ? "Pace" : "Duration" }]} />
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -2999,6 +3208,7 @@ function CalendarView({ entries, exMap, bwEntries, unit, cardioEntries }) {
                             <div style={{ fontSize: 12, color: COLORS.textMuted, fontFamily: "'IBM Plex Mono', monospace" }}>
                               {[e.durationMin ? `${e.durationMin} min` : null, distStr, ps ? `${ps.pace}/${ps.unit}` : null].filter(Boolean).join("   ")}
                             </div>
+                            {e.notes && <div style={{ fontSize: 11.5, color: COLORS.textFaint, marginTop: 3, fontStyle: "italic" }}>{e.notes}</div>}
                           </div>
                         );
                       })}
