@@ -39,7 +39,14 @@
 </script>
 <style>
   :root { --app-bg: #18181B; --placeholder-color: #5A5A5F; --scrollbar-thumb: #38383D; }
-  @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+  @font-face { font-family: 'Bebas Neue'; font-style: normal; font-weight: 400; font-display: swap; src: url('vendor/fonts/bebas-neue-latin-400-normal.woff2') format('woff2'); }
+  @font-face { font-family: 'Inter'; font-style: normal; font-weight: 400; font-display: swap; src: url('vendor/fonts/inter-latin-400-normal.woff2') format('woff2'); }
+  @font-face { font-family: 'Inter'; font-style: normal; font-weight: 500; font-display: swap; src: url('vendor/fonts/inter-latin-500-normal.woff2') format('woff2'); }
+  @font-face { font-family: 'Inter'; font-style: normal; font-weight: 600; font-display: swap; src: url('vendor/fonts/inter-latin-600-normal.woff2') format('woff2'); }
+  @font-face { font-family: 'Inter'; font-style: normal; font-weight: 700; font-display: swap; src: url('vendor/fonts/inter-latin-700-normal.woff2') format('woff2'); }
+  @font-face { font-family: 'IBM Plex Mono'; font-style: normal; font-weight: 400; font-display: swap; src: url('vendor/fonts/ibm-plex-mono-latin-400-normal.woff2') format('woff2'); }
+  @font-face { font-family: 'IBM Plex Mono'; font-style: normal; font-weight: 500; font-display: swap; src: url('vendor/fonts/ibm-plex-mono-latin-500-normal.woff2') format('woff2'); }
+  @font-face { font-family: 'IBM Plex Mono'; font-style: normal; font-weight: 600; font-display: swap; src: url('vendor/fonts/ibm-plex-mono-latin-600-normal.woff2') format('woff2'); }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body { margin: 0; padding: 0; background: var(--app-bg); height: 100%; }
   body { font-family: 'Inter', sans-serif; overscroll-behavior-y: none; }
@@ -62,10 +69,10 @@
 <body>
 <div id="root"></div>
 
-<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-<script crossorigin src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-<script crossorigin src="https://unpkg.com/html5-qrcode"></script>
+<script src="vendor/react.production.min.js"></script>
+<script src="vendor/react-dom.production.min.js"></script>
+<script src="vendor/babel.min.js"></script>
+<script src="vendor/html5-qrcode.min.js"></script>
 
 <script type="text/plain" id="app-source">
 const { useState, useEffect, useMemo, useCallback, useRef } = React;
@@ -119,6 +126,13 @@ function Moon({ size, color = "currentColor", style }) {
   return (
     <IconWrap size={size} style={style}>
       <path d="M20 14.5A8.5 8.5 0 1 1 9.5 4a6.8 6.8 0 0 0 10.5 10.5z" stroke={color} strokeWidth="2" strokeLinejoin="round" />
+    </IconWrap>
+  );
+}
+function Activity({ size, color = "currentColor", style }) {
+  return (
+    <IconWrap size={size} style={style}>
+      <polyline points="2,13 7,13 9.5,6 14.5,20 17,13 22,13" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
     </IconWrap>
   );
 }
@@ -325,11 +339,12 @@ Object.entries(MUSCLE_GROUPS).forEach(([cat, muscles]) => {
 function categoryOf(exercise) {
   return MUSCLE_TO_CATEGORY[exercise?.muscle] || "Other";
 }
+const LOAD_TYPES = ["total", "perSide", "bodyweight", "timed"];
 function migrateExercises(list) {
   let changed = false;
   const next = list.map((e) => {
     const hasValidMuscle = e.muscle && MUSCLE_TO_CATEGORY[e.muscle];
-    const hasLoadType = e.loadType === "total" || e.loadType === "perSide";
+    const hasLoadType = LOAD_TYPES.includes(e.loadType);
     if (hasValidMuscle && hasLoadType) return e;
     changed = true;
     const cat = e.category && MUSCLE_GROUPS[e.category] ? e.category : "Other";
@@ -342,6 +357,15 @@ function migrateExercises(list) {
 // each side genuinely moves that load. 1RM/PR tracking deliberately does NOT use this multiplier —
 // est. 1RM should reflect what one side can lift, not a doubled, non-physical number.
 function loadMultiplier(exercise) { return exercise?.loadType === "perSide" ? 2 : 1; }
+function isTimed(exercise) { return exercise?.loadType === "timed"; }
+function isBodyweight(exercise) { return exercise?.loadType === "bodyweight"; }
+function latestBodyweightKg(bwEntries) { return bwEntries.length ? bwEntries[bwEntries.length - 1].weightKg : 0; }
+function formatDuration(sec) {
+  if (sec == null) return null;
+  if (sec < 60) return `${Math.round(sec)}s`;
+  const m = Math.floor(sec / 60), s = Math.round(sec % 60);
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
 
 const DEFAULT_EXERCISES = [
   { id: "bench-press", name: "Bench Press", muscle: "Chest", loadType: "total" },
@@ -409,6 +433,58 @@ function computeTrendStatus(sessions) {
 }
 function kgToLb(kg) { return kg * 2.20462; }
 function lbToKg(lb) { return lb / 2.20462; }
+
+// ================= CARDIO =================
+const CARDIO_COLOR = "#8C5FC2"; // purple — distinct from the five strength-category plate colors
+const CARDIO_ACTIVITIES = ["Running", "Walking", "Hiking", "Cycling", "Rowing", "Swimming", "Sled Push/Pull", "Stair Climber", "Jump Rope", "Elliptical", "Other Cardio"];
+// Sports get a simpler log flow — just activity, date, and duration, no distance/load fields.
+const SPORTS_LIST = ["Football", "Basketball", "Tennis", "Rugby", "Boxing", "Martial Arts", "Climbing", "Golf", "Squash", "Padel", "Volleyball", "Hockey", "Cricket", "Badminton", "Other Sport"];
+// Activities usually measured in short bursts default to meters/yards rather than km/miles —
+// a 40m sled push shouldn't have to be entered as "0.04".
+const SHORT_DISTANCE_ACTIVITIES = ["Sled Push/Pull", "Jump Rope"];
+
+// distance is always stored internally in meters, regardless of which unit was used to enter it
+function distanceToMeters(value, distUnit) {
+  if (distUnit === "m") return value;
+  if (distUnit === "km") return value * 1000;
+  if (distUnit === "yd") return value * 0.9144;
+  if (distUnit === "mi") return value * 1609.34;
+  return value;
+}
+function metersToDisplay(meters, distUnit) {
+  if (distUnit === "m") return meters;
+  if (distUnit === "km") return meters / 1000;
+  if (distUnit === "yd") return meters / 0.9144;
+  if (distUnit === "mi") return meters / 1609.34;
+  return meters;
+}
+function defaultDistUnit(activity, unit) {
+  const short = SHORT_DISTANCE_ACTIVITIES.includes(activity);
+  if (unit === "kg") return short ? "m" : "km";
+  return short ? "yd" : "mi";
+}
+function formatPace(minutesPerUnit) {
+  if (!isFinite(minutesPerUnit) || minutesPerUnit <= 0) return null;
+  const m = Math.floor(minutesPerUnit);
+  const s = Math.round((minutesPerUnit - m) * 60);
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
+// Chooses whichever unit reads naturally for the magnitude (meters/yards for short efforts like
+// a sled push, km/miles once it's a real distance), independent of which unit was used to enter it.
+function formatDistance(meters, unit) {
+  if (meters == null) return null;
+  if (unit === "kg") return meters < 1000 ? `${Math.round(meters)}m` : `${fmt(meters / 1000)}km`;
+  const yards = meters / 0.9144;
+  return yards < 1000 ? `${Math.round(yards)}yd` : `${fmt(meters / 1609.34)}mi`;
+}
+function computePaceSpeed(durationMin, meters, unit) {
+  if (!durationMin || !meters) return null;
+  const longUnit = unit === "kg" ? "km" : "mi";
+  const distLong = metersToDisplay(meters, longUnit);
+  if (distLong <= 0) return null;
+  return { pace: formatPace(durationMin / distLong), unit: longUnit, speed: fmt(distLong / (durationMin / 60)) };
+}
+
 function fmt(n) { return Math.round(n * 10) / 10; }
 function dayNameFromDateStr(dateStr) { const idx = new Date(dateStr + "T00:00:00").getDay(); return DAYS[(idx + 6) % 7]; }
 function isoWeekKey(dateStr) {
@@ -481,7 +557,7 @@ function buildDayIndex(entries, exMap, unit) {
     if (!d.byMuscle[musc]) d.byMuscle[musc] = { volume: 0, reps: 0, sets: 0 };
     d.byMuscle[musc].volume += vol; d.byMuscle[musc].reps += e.reps; d.byMuscle[musc].sets += 1;
     if (!d.byExercise[e.exerciseId]) d.byExercise[e.exerciseId] = [];
-    d.byExercise[e.exerciseId].push({ weight: w, reps: e.reps, id: e.id });
+    d.byExercise[e.exerciseId].push({ weight: w, reps: e.reps, id: e.id, durationSec: e.durationSec, addedPortionKg: e.addedPortionKg });
   }
   return map;
 }
@@ -705,6 +781,30 @@ function Segmented({ options, value, onChange }) {
   );
 }
 
+const LOAD_TYPE_OPTIONS = [
+  { value: "total", label: "Total" },
+  { value: "perSide", label: "Per Side" },
+  { value: "bodyweight", label: "Bodyweight" },
+  { value: "timed", label: "Timed" },
+];
+function LoadTypePicker({ value, onChange }) {
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+      {LOAD_TYPE_OPTIONS.map((o) => (
+        <button key={o.value} onClick={() => onChange(o.value)}
+          style={{
+            padding: "8px 6px", borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: "pointer",
+            border: `1px solid ${value === o.value ? COLORS.text : COLORS.line}`,
+            background: value === o.value ? COLORS.text : COLORS.surfaceRaised,
+            color: value === o.value ? COLORS.bg : COLORS.textMuted,
+          }}>
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function PlateStack({ weight, unit }) {
   const { plates } = calcPlates(weight, unit);
   const plateEl = (p, i) => (
@@ -756,6 +856,9 @@ function GymTracker() {
   const [weekPlan, setWeekPlan] = useState({});
   const [foodEntries, setFoodEntries] = useState([]);
   const [favoriteFoods, setFavoriteFoods] = useState([]);
+  const [cardioEntries, setCardioEntries] = useState([]);
+  const [customCardioActivities, setCustomCardioActivities] = useState([]);
+  const [customSports, setCustomSports] = useState([]);
   const [profile, setProfile] = useState({ heightCm: 175, age: 30, sex: "male", activityLevel: "moderate", goal: "maintain" });
   const [loaded, setLoaded] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -779,23 +882,25 @@ function GymTracker() {
 
   useEffect(() => {
     (async () => {
-      const [ex, en, bw, u, ro, wp, fe, pr, ff] = await Promise.all([
+      const [ex, en, bw, u, ro, wp, fe, pr, ff, ce, cca, cs] = await Promise.all([
         loadJSON("exercises", DEFAULT_EXERCISES), loadJSON("workout_entries", []), loadJSON("bodyweight_entries", []),
         loadJSON("unit_pref", "kg"), loadJSON("routines", []), loadJSON("week_plan", {}),
         loadJSON("food_entries", []), loadJSON("profile", { heightCm: 175, age: 30, sex: "male", activityLevel: "moderate", goal: "maintain" }),
-        loadJSON("favorite_foods", []),
+        loadJSON("favorite_foods", []), loadJSON("cardio_entries", []),
+        loadJSON("custom_cardio_activities", []), loadJSON("custom_sports", []),
       ]);
       const migrated = migrateExercises(ex);
       setExercises(migrated.list);
       if (migrated.changed) saveJSON("exercises", migrated.list);
       setEntries(en); setBwEntries(bw); setUnit(u); setRoutines(ro); setWeekPlan(wp);
-      setFoodEntries(fe); setProfile(pr); setFavoriteFoods(ff); setLoaded(true);
+      setFoodEntries(fe); setProfile(pr); setFavoriteFoods(ff); setCardioEntries(ce);
+      setCustomCardioActivities(cca); setCustomSports(cs); setLoaded(true);
     })();
   }, []);
 
   const changeUnit = useCallback((u) => { setUnit(u); saveJSON("unit_pref", u); }, []);
   const addExercise = useCallback((name, muscle, loadType) => {
-    const ex = { id: genId(), name, muscle, loadType: loadType === "perSide" ? "perSide" : "total" };
+    const ex = { id: genId(), name, muscle, loadType: LOAD_TYPES.includes(loadType) ? loadType : "total" };
     setExercises((prev) => { const next = [...prev, ex]; saveJSON("exercises", next); return next; });
     return ex.id;
   }, []);
@@ -828,11 +933,38 @@ function GymTracker() {
     setFavoriteFoods((prev) => { const next = prev.filter((f) => f.id !== id); saveJSON("favorite_foods", next); return next; });
   }, []);
   const deleteFood = useCallback((id) => { setFoodEntries((prev) => { const next = prev.filter((e) => e.id !== id); saveJSON("food_entries", next); return next; }); }, []);
+  const addCardio = useCallback((entry) => { setCardioEntries((prev) => { const next = [...prev, entry]; saveJSON("cardio_entries", next); return next; }); }, []);
+  const updateCardio = useCallback((id, updates) => {
+    setCardioEntries((prev) => { const next = prev.map((e) => (e.id === id ? { ...e, ...updates } : e)); saveJSON("cardio_entries", next); return next; });
+  }, []);
+  const deleteCardio = useCallback((id) => { setCardioEntries((prev) => { const next = prev.filter((e) => e.id !== id); saveJSON("cardio_entries", next); return next; }); }, []);
+
+  const addCustomCardioActivity = useCallback((name) => {
+    const trimmed = name.trim();
+    setCustomCardioActivities((prev) => {
+      if (!trimmed || CARDIO_ACTIVITIES.includes(trimmed) || prev.includes(trimmed)) return prev;
+      const next = [...prev, trimmed]; saveJSON("custom_cardio_activities", next); return next;
+    });
+  }, []);
+  const deleteCustomCardioActivity = useCallback((name) => {
+    setCustomCardioActivities((prev) => { const next = prev.filter((a) => a !== name); saveJSON("custom_cardio_activities", next); return next; });
+  }, []);
+  const addCustomSport = useCallback((name) => {
+    const trimmed = name.trim();
+    setCustomSports((prev) => {
+      if (!trimmed || SPORTS_LIST.includes(trimmed) || prev.includes(trimmed)) return prev;
+      const next = [...prev, trimmed]; saveJSON("custom_sports", next); return next;
+    });
+  }, []);
+  const deleteCustomSport = useCallback((name) => {
+    setCustomSports((prev) => { const next = prev.filter((a) => a !== name); saveJSON("custom_sports", next); return next; });
+  }, []);
 
   const exMap = useMemo(() => Object.fromEntries(exercises.map((e) => [e.id, e])), [exercises]);
 
   const TABS = [
     { key: "log", label: "Log", icon: Dumbbell },
+    { key: "cardio", label: "Cardio", icon: Activity },
     { key: "exercises", label: "Exercises", icon: Pencil },
     { key: "routines", label: "Routines", icon: ListChecks },
     { key: "prshelf", label: "PR Shelf", icon: Trophy },
@@ -1009,7 +1141,12 @@ function GymTracker() {
 
   const renderTab = (key) => {
     if (key === "log") {
-      return <LogTab exercises={exercises} entries={entries} exMap={exMap} unit={unit} addExercise={addExercise} addEntry={addEntry} updateEntry={updateEntry} deleteEntry={deleteEntry} routines={routines} weekPlan={weekPlan} setTab={goToTab} />;
+      return <LogTab exercises={exercises} entries={entries} exMap={exMap} unit={unit} addExercise={addExercise} addEntry={addEntry} updateEntry={updateEntry} deleteEntry={deleteEntry} routines={routines} weekPlan={weekPlan} setTab={goToTab} bwEntries={bwEntries} />;
+    }
+    if (key === "cardio") {
+      return <CardioTab cardioEntries={cardioEntries} unit={unit} addCardio={addCardio} updateCardio={updateCardio} deleteCardio={deleteCardio}
+        customCardioActivities={customCardioActivities} addCustomCardioActivity={addCustomCardioActivity} deleteCustomCardioActivity={deleteCustomCardioActivity}
+        customSports={customSports} addCustomSport={addCustomSport} deleteCustomSport={deleteCustomSport} />;
     }
     if (key === "exercises") {
       return <ExercisesTab exercises={exercises} entries={entries} addExercise={addExercise} updateExercise={updateExercise} deleteExercise={deleteExercise} />;
@@ -1027,7 +1164,7 @@ function GymTracker() {
       return <VolumeTab exercises={exercises} entries={entries} exMap={exMap} unit={unit} />;
     }
     if (key === "history") {
-      return <HistoryTab exercises={exercises} entries={entries} exMap={exMap} bwEntries={bwEntries} unit={unit} />;
+      return <HistoryTab exercises={exercises} entries={entries} exMap={exMap} bwEntries={bwEntries} unit={unit} cardioEntries={cardioEntries} />;
     }
     if (key === "bodyweight") {
       return <BodyweightTab entries={bwEntries} unit={unit} addBw={addBw} deleteBw={deleteBw} />;
@@ -1109,10 +1246,11 @@ function GymTracker() {
 }
 
 // ================= LOG TAB =================
-function LogTab({ exercises, entries, exMap, unit, addExercise, addEntry, updateEntry, deleteEntry, routines, weekPlan, setTab }) {
+function LogTab({ exercises, entries, exMap, unit, addExercise, addEntry, updateEntry, deleteEntry, routines, weekPlan, setTab, bwEntries }) {
   const [exerciseId, setExerciseId] = useState(exercises[0]?.id || "");
-  const [weight, setWeight] = useState("");
+  const [weight, setWeight] = useState(""); // full weight, OR "added" weight for bodyweight/timed
   const [reps, setReps] = useState("");
+  const [duration, setDuration] = useState(""); // seconds, timed exercises only
   const [date, setDate] = useState(todayStr());
   const [showAdd, setShowAdd] = useState(false);
   const [newName, setNewName] = useState("");
@@ -1122,19 +1260,38 @@ function LogTab({ exercises, entries, exMap, unit, addExercise, addEntry, update
   const [editExerciseId, setEditExerciseId] = useState("");
   const [editWeight, setEditWeight] = useState("");
   const [editReps, setEditReps] = useState("");
+  const [editDuration, setEditDuration] = useState("");
   const [editDate, setEditDate] = useState("");
 
   useEffect(() => { if (!exerciseId && exercises.length) setExerciseId(exercises[0].id); }, [exercises, exerciseId]);
 
+  const currentEx = exMap[exerciseId];
+  const exLoadType = currentEx?.loadType || "total";
+  const bwLatestKg = latestBodyweightKg(bwEntries);
+
   const weightNum = parseFloat(weight);
   const repsNum = parseInt(reps, 10);
-  const canSubmit = exerciseId && weightNum > 0 && repsNum > 0;
+  const durationNum = parseFloat(duration);
+  const canSubmit = exerciseId && (
+    exLoadType === "timed" ? durationNum > 0 :
+    exLoadType === "bodyweight" ? repsNum > 0 :
+    weightNum > 0 && repsNum > 0
+  );
 
   const submit = () => {
     if (!canSubmit) return;
-    const weightKg = unit === "kg" ? weightNum : lbToKg(weightNum);
-    addEntry({ id: genId(), exerciseId, date, weightKg, reps: repsNum });
-    setWeight(""); setReps("");
+    const addedKg = weightNum > 0 ? (unit === "kg" ? weightNum : lbToKg(weightNum)) : 0;
+    if (exLoadType === "timed") {
+      addEntry({ id: genId(), exerciseId, date, weightKg: addedKg, reps: null, durationSec: durationNum });
+      setWeight(""); setDuration("");
+    } else if (exLoadType === "bodyweight") {
+      addEntry({ id: genId(), exerciseId, date, weightKg: bwLatestKg + addedKg, reps: repsNum, bodyweightPortionKg: bwLatestKg, addedPortionKg: addedKg });
+      setWeight(""); setReps("");
+    } else {
+      const weightKg = unit === "kg" ? weightNum : lbToKg(weightNum);
+      addEntry({ id: genId(), exerciseId, date, weightKg, reps: repsNum });
+      setWeight(""); setReps("");
+    }
   };
   const handleAddExercise = () => {
     if (!newName.trim()) return;
@@ -1145,16 +1302,44 @@ function LogTab({ exercises, entries, exMap, unit, addExercise, addEntry, update
   const startEditEntry = (e) => {
     setEditingEntryId(e.id);
     setEditExerciseId(e.exerciseId);
-    setEditWeight(String(fmt(unit === "kg" ? e.weightKg : kgToLb(e.weightKg))));
-    setEditReps(String(e.reps));
     setEditDate(e.date);
+    const ex = exMap[e.exerciseId];
+    if (isTimed(ex)) {
+      setEditWeight(e.weightKg > 0 ? String(fmt(unit === "kg" ? e.weightKg : kgToLb(e.weightKg))) : "");
+      setEditDuration(e.durationSec != null ? String(e.durationSec) : "");
+      setEditReps("");
+    } else if (isBodyweight(ex)) {
+      const added = e.addedPortionKg != null ? e.addedPortionKg : 0;
+      setEditWeight(added > 0 ? String(fmt(unit === "kg" ? added : kgToLb(added))) : "");
+      setEditReps(String(e.reps));
+      setEditDuration("");
+    } else {
+      setEditWeight(String(fmt(unit === "kg" ? e.weightKg : kgToLb(e.weightKg))));
+      setEditReps(String(e.reps));
+      setEditDuration("");
+    }
   };
   const cancelEditEntry = () => setEditingEntryId(null);
   const saveEditEntry = () => {
-    const w = parseFloat(editWeight); const r = parseInt(editReps, 10);
-    if (!editExerciseId || !(w > 0) || !(r > 0) || !editDate) return;
-    const weightKg = unit === "kg" ? w : lbToKg(w);
-    updateEntry(editingEntryId, { exerciseId: editExerciseId, date: editDate, weightKg, reps: r });
+    const ex = exMap[editExerciseId];
+    if (!editExerciseId || !editDate) return;
+    const w = parseFloat(editWeight);
+    const addedKg = w > 0 ? (unit === "kg" ? w : lbToKg(w)) : 0;
+    if (isTimed(ex)) {
+      const d = parseFloat(editDuration);
+      if (!(d > 0)) return;
+      updateEntry(editingEntryId, { exerciseId: editExerciseId, date: editDate, weightKg: addedKg, reps: null, durationSec: d });
+    } else if (isBodyweight(ex)) {
+      const r = parseInt(editReps, 10);
+      if (!(r > 0)) return;
+      const bwKg = latestBodyweightKg(bwEntries);
+      updateEntry(editingEntryId, { exerciseId: editExerciseId, date: editDate, weightKg: bwKg + addedKg, reps: r, bodyweightPortionKg: bwKg, addedPortionKg: addedKg, durationSec: undefined });
+    } else {
+      const r = parseInt(editReps, 10);
+      if (!(w > 0) || !(r > 0)) return;
+      const weightKg = unit === "kg" ? w : lbToKg(w);
+      updateEntry(editingEntryId, { exerciseId: editExerciseId, date: editDate, weightKg, reps: r, bodyweightPortionKg: undefined, addedPortionKg: undefined, durationSec: undefined });
+    }
     setEditingEntryId(null);
   };
 
@@ -1164,8 +1349,8 @@ function LogTab({ exercises, entries, exMap, unit, addExercise, addEntry, update
   const planRoutineId = weekPlan[planDayName];
   const planRoutine = routines.find((r) => r.id === planRoutineId);
   const doneExerciseIds = new Set(todaysEntries.map((e) => e.exerciseId));
-  const lastSession = exerciseId ? getLastSession(entries, exerciseId, date, unit) : null;
-  const isPerSide = exMap[exerciseId]?.loadType === "perSide";
+  const lastSession = exerciseId && exLoadType !== "timed" ? getLastSession(entries, exerciseId, date, unit) : null;
+  const isPerSide = exLoadType === "perSide";
 
   return (
     <div className="flex flex-col" style={{ gap: 20 }}>
@@ -1219,7 +1404,7 @@ function LogTab({ exercises, entries, exMap, unit, addExercise, addEntry, update
               </select>
               <label style={{ fontSize: 10.5, color: COLORS.textMuted }}>Load Type</label>
               <div style={{ marginTop: 4 }}>
-                <Segmented options={[{ value: "total", label: "Total" }, { value: "perSide", label: "Per Side" }]} value={newLoadType} onChange={setNewLoadType} />
+                <LoadTypePicker value={newLoadType} onChange={setNewLoadType} />
               </div>
               <button onClick={handleAddExercise} style={{ marginTop: 10, width: "100%", padding: "8px 0", borderRadius: 6, border: "none", background: COLORS.text, color: COLORS.bg, fontWeight: 600, fontSize: 12.5, cursor: "pointer" }}>Add exercise</button>
             </div>
@@ -1236,23 +1421,47 @@ function LogTab({ exercises, entries, exMap, unit, addExercise, addEntry, update
               </div>
             </div>
           )}
-          <div className="flex" style={{ gap: 10, marginBottom: 12 }}>
-            <div style={{ flex: 1 }}>
-              <label style={{ fontSize: 11, color: COLORS.textMuted }}>Weight ({unit})</label>
-              <input type="number" inputMode="decimal" value={weight} onChange={(e) => setWeight(e.target.value)} placeholder="0" style={{ width: "100%", padding: "9px 10px", marginTop: 5, borderRadius: 7, border: `1px solid ${COLORS.line}`, background: COLORS.surfaceRaised, color: COLORS.text, fontSize: 15, fontFamily: "'IBM Plex Mono', monospace" }} />
+          {exLoadType === "timed" ? (
+            <div className="flex" style={{ gap: 10, marginBottom: 12 }}>
+              <div style={{ flex: 1 }}>
+                <label style={{ fontSize: 11, color: COLORS.textMuted }}>Duration (sec)</label>
+                <input type="number" inputMode="decimal" value={duration} onChange={(e) => setDuration(e.target.value)} placeholder="0" style={{ width: "100%", padding: "9px 10px", marginTop: 5, borderRadius: 7, border: `1px solid ${COLORS.line}`, background: COLORS.surfaceRaised, color: COLORS.text, fontSize: 15, fontFamily: "'IBM Plex Mono', monospace" }} />
+              </div>
+              <div style={{ flex: 1 }}>
+                <label style={{ fontSize: 11, color: COLORS.textMuted }}>Added weight ({unit}) — optional</label>
+                <input type="number" inputMode="decimal" value={weight} onChange={(e) => setWeight(e.target.value)} placeholder="0" style={{ width: "100%", padding: "9px 10px", marginTop: 5, borderRadius: 7, border: `1px solid ${COLORS.line}`, background: COLORS.surfaceRaised, color: COLORS.text, fontSize: 15, fontFamily: "'IBM Plex Mono', monospace" }} />
+              </div>
             </div>
-            <div style={{ flex: 1 }}>
-              <label style={{ fontSize: 11, color: COLORS.textMuted }}>Reps</label>
-              <input type="number" inputMode="numeric" value={reps} onChange={(e) => setReps(e.target.value)} placeholder="0" style={{ width: "100%", padding: "9px 10px", marginTop: 5, borderRadius: 7, border: `1px solid ${COLORS.line}`, background: COLORS.surfaceRaised, color: COLORS.text, fontSize: 15, fontFamily: "'IBM Plex Mono', monospace" }} />
+          ) : exLoadType === "bodyweight" ? (
+            <div className="flex" style={{ gap: 10, marginBottom: 12 }}>
+              <div style={{ flex: 1 }}>
+                <label style={{ fontSize: 11, color: COLORS.textMuted }}>Added weight ({unit}) — optional</label>
+                <input type="number" inputMode="decimal" value={weight} onChange={(e) => setWeight(e.target.value)} placeholder="0" style={{ width: "100%", padding: "9px 10px", marginTop: 5, borderRadius: 7, border: `1px solid ${COLORS.line}`, background: COLORS.surfaceRaised, color: COLORS.text, fontSize: 15, fontFamily: "'IBM Plex Mono', monospace" }} />
+              </div>
+              <div style={{ flex: 1 }}>
+                <label style={{ fontSize: 11, color: COLORS.textMuted }}>Reps</label>
+                <input type="number" inputMode="numeric" value={reps} onChange={(e) => setReps(e.target.value)} placeholder="0" style={{ width: "100%", padding: "9px 10px", marginTop: 5, borderRadius: 7, border: `1px solid ${COLORS.line}`, background: COLORS.surfaceRaised, color: COLORS.text, fontSize: 15, fontFamily: "'IBM Plex Mono', monospace" }} />
+              </div>
             </div>
-          </div>
+          ) : (
+            <div className="flex" style={{ gap: 10, marginBottom: 12 }}>
+              <div style={{ flex: 1 }}>
+                <label style={{ fontSize: 11, color: COLORS.textMuted }}>Weight ({unit})</label>
+                <input type="number" inputMode="decimal" value={weight} onChange={(e) => setWeight(e.target.value)} placeholder="0" style={{ width: "100%", padding: "9px 10px", marginTop: 5, borderRadius: 7, border: `1px solid ${COLORS.line}`, background: COLORS.surfaceRaised, color: COLORS.text, fontSize: 15, fontFamily: "'IBM Plex Mono', monospace" }} />
+              </div>
+              <div style={{ flex: 1 }}>
+                <label style={{ fontSize: 11, color: COLORS.textMuted }}>Reps</label>
+                <input type="number" inputMode="numeric" value={reps} onChange={(e) => setReps(e.target.value)} placeholder="0" style={{ width: "100%", padding: "9px 10px", marginTop: 5, borderRadius: 7, border: `1px solid ${COLORS.line}`, background: COLORS.surfaceRaised, color: COLORS.text, fontSize: 15, fontFamily: "'IBM Plex Mono', monospace" }} />
+              </div>
+            </div>
+          )}
           <label style={{ fontSize: 11, color: COLORS.textMuted }}>Date</label>
           <input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={{ width: "100%", padding: "8px 10px", marginTop: 5, marginBottom: 14, borderRadius: 7, border: `1px solid ${COLORS.line}`, background: COLORS.surfaceRaised, color: COLORS.text, fontSize: 13 }} />
           <button onClick={submit} disabled={!canSubmit} style={{ width: "100%", padding: "11px 0", borderRadius: 8, border: "none", background: canSubmit ? CATEGORY_COLORS[cat] : COLORS.line, color: canSubmit ? "#fff" : COLORS.textFaint, fontWeight: 700, fontSize: 13.5, letterSpacing: 0.4, cursor: canSubmit ? "pointer" : "not-allowed" }}>LOG SET</button>
         </div>
 
         <div style={{ flex: "1 1 220px", background: COLORS.surface, border: `1px solid ${COLORS.line}`, borderRadius: 10, padding: 16, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
-          {isPerSide ? (
+          {exLoadType === "perSide" ? (
             <>
               <span style={{ fontSize: 12, color: COLORS.textMuted, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: 0.5, marginBottom: 14, alignSelf: "flex-start" }}>PER-SIDE LOAD</span>
               <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: 34, letterSpacing: 0.5, lineHeight: 1 }}>
@@ -1261,6 +1470,33 @@ function LogTab({ exercises, entries, exMap, unit, addExercise, addEntry, update
               <div style={{ marginTop: 10, fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, color: CATEGORY_COLORS.Pull }}>
                 = {weightNum > 0 ? fmt(weightNum * 2) : 0}{unit} total load
               </div>
+            </>
+          ) : exLoadType === "bodyweight" ? (
+            <>
+              <span style={{ fontSize: 12, color: COLORS.textMuted, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: 0.5, marginBottom: 14, alignSelf: "flex-start" }}>BODYWEIGHT LOAD</span>
+              <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: 34, letterSpacing: 0.5, lineHeight: 1 }}>
+                {fmt(unit === "kg" ? bwLatestKg : kgToLb(bwLatestKg))}{unit} <span style={{ fontSize: 16, color: COLORS.textFaint, fontFamily: "'IBM Plex Mono', monospace" }}>bodyweight</span>
+              </div>
+              {weightNum > 0 && (
+                <div style={{ marginTop: 10, fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, color: CATEGORY_COLORS.Pull }}>
+                  + {fmt(weightNum)}{unit} added = {fmt((unit === "kg" ? bwLatestKg : kgToLb(bwLatestKg)) + weightNum)}{unit} total
+                </div>
+              )}
+              {bwLatestKg === 0 && (
+                <div style={{ marginTop: 10, fontSize: 11, color: COLORS.textFaint, textAlign: "center" }}>No bodyweight logged yet — log one on the Bodyweight tab for an accurate number.</div>
+              )}
+            </>
+          ) : exLoadType === "timed" ? (
+            <>
+              <span style={{ fontSize: 12, color: COLORS.textMuted, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: 0.5, marginBottom: 14, alignSelf: "flex-start" }}>TIMED HOLD</span>
+              <div style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: 40, letterSpacing: 0.5, lineHeight: 1 }}>
+                {durationNum > 0 ? formatDuration(durationNum) : "0:00"}
+              </div>
+              {weightNum > 0 && (
+                <div style={{ marginTop: 10, fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, color: CATEGORY_COLORS.Pull }}>
+                  + {fmt(weightNum)}{unit} added
+                </div>
+              )}
             </>
           ) : (
             <>
@@ -1280,7 +1516,7 @@ function LogTab({ exercises, entries, exMap, unit, addExercise, addEntry, update
           <div className="flex flex-col" style={{ gap: 6 }}>
             {todaysEntries.map((e) => {
               const ex = exMap[e.exerciseId]; const w = unit === "kg" ? e.weightKg : kgToLb(e.weightKg);
-              const badge = getSetBadge(entries, e.exerciseId, e.date, w, e.reps, unit);
+              const badge = isTimed(ex) ? null : getSetBadge(entries, e.exerciseId, e.date, w, e.reps, unit);
               const isEditingEntry = editingEntryId === e.id;
               if (isEditingEntry) {
                 const editCat = categoryOf(exMap[editExerciseId]);
@@ -1290,14 +1526,31 @@ function LogTab({ exercises, entries, exMap, unit, addExercise, addEntry, update
                       style={{ width: "100%", padding: "7px 9px", marginBottom: 8, borderRadius: 6, border: `1px solid ${COLORS.line}`, background: COLORS.surface, color: COLORS.text, fontSize: 12.5 }}>
                       {CATEGORIES.map((c) => (<optgroup key={c} label={c}>{exercises.filter((ex2) => categoryOf(ex2) === c).map((ex2) => <option key={ex2.id} value={ex2.id}>{ex2.name} · {ex2.muscle}</option>)}</optgroup>))}
                     </select>
-                    <div className="flex" style={{ gap: 8, marginBottom: 8 }}>
-                      <input type="number" inputMode="decimal" value={editWeight} onChange={(ev) => setEditWeight(ev.target.value)} placeholder={`Weight (${unit})`}
-                        style={{ flex: 1, padding: "7px 9px", borderRadius: 6, border: `1px solid ${COLORS.line}`, background: COLORS.surface, color: COLORS.text, fontSize: 13, fontFamily: "'IBM Plex Mono', monospace" }} />
-                      <input type="number" inputMode="numeric" value={editReps} onChange={(ev) => setEditReps(ev.target.value)} placeholder="Reps"
-                        style={{ flex: 1, padding: "7px 9px", borderRadius: 6, border: `1px solid ${COLORS.line}`, background: COLORS.surface, color: COLORS.text, fontSize: 13, fontFamily: "'IBM Plex Mono', monospace" }} />
-                      <input type="date" value={editDate} onChange={(ev) => setEditDate(ev.target.value)}
-                        style={{ flex: 1, padding: "7px 9px", borderRadius: 6, border: `1px solid ${COLORS.line}`, background: COLORS.surface, color: COLORS.text, fontSize: 12 }} />
-                    </div>
+                    {(() => {
+                      const editEx = exMap[editExerciseId];
+                      if (isTimed(editEx)) {
+                        return (
+                          <div className="flex" style={{ gap: 8, marginBottom: 8 }}>
+                            <input type="number" inputMode="decimal" value={editDuration} onChange={(ev) => setEditDuration(ev.target.value)} placeholder="Duration (sec)"
+                              style={{ flex: 1, padding: "7px 9px", borderRadius: 6, border: `1px solid ${COLORS.line}`, background: COLORS.surface, color: COLORS.text, fontSize: 13, fontFamily: "'IBM Plex Mono', monospace" }} />
+                            <input type="number" inputMode="decimal" value={editWeight} onChange={(ev) => setEditWeight(ev.target.value)} placeholder={`Added (${unit})`}
+                              style={{ flex: 1, padding: "7px 9px", borderRadius: 6, border: `1px solid ${COLORS.line}`, background: COLORS.surface, color: COLORS.text, fontSize: 13, fontFamily: "'IBM Plex Mono', monospace" }} />
+                            <input type="date" value={editDate} onChange={(ev) => setEditDate(ev.target.value)}
+                              style={{ flex: 1, padding: "7px 9px", borderRadius: 6, border: `1px solid ${COLORS.line}`, background: COLORS.surface, color: COLORS.text, fontSize: 12 }} />
+                          </div>
+                        );
+                      }
+                      return (
+                        <div className="flex" style={{ gap: 8, marginBottom: 8 }}>
+                          <input type="number" inputMode="decimal" value={editWeight} onChange={(ev) => setEditWeight(ev.target.value)} placeholder={isBodyweight(editEx) ? `Added (${unit})` : `Weight (${unit})`}
+                            style={{ flex: 1, padding: "7px 9px", borderRadius: 6, border: `1px solid ${COLORS.line}`, background: COLORS.surface, color: COLORS.text, fontSize: 13, fontFamily: "'IBM Plex Mono', monospace" }} />
+                          <input type="number" inputMode="numeric" value={editReps} onChange={(ev) => setEditReps(ev.target.value)} placeholder="Reps"
+                            style={{ flex: 1, padding: "7px 9px", borderRadius: 6, border: `1px solid ${COLORS.line}`, background: COLORS.surface, color: COLORS.text, fontSize: 13, fontFamily: "'IBM Plex Mono', monospace" }} />
+                          <input type="date" value={editDate} onChange={(ev) => setEditDate(ev.target.value)}
+                            style={{ flex: 1, padding: "7px 9px", borderRadius: 6, border: `1px solid ${COLORS.line}`, background: COLORS.surface, color: COLORS.text, fontSize: 12 }} />
+                        </div>
+                      );
+                    })()}
                     <div className="flex" style={{ gap: 8 }}>
                       <button onClick={saveEditEntry} style={{ flex: 1, padding: "7px 0", borderRadius: 6, border: "none", background: COLORS.text, color: COLORS.bg, fontWeight: 700, fontSize: 12, cursor: "pointer" }}>Save</button>
                       <button onClick={cancelEditEntry} style={{ padding: "7px 14px", borderRadius: 6, border: `1px solid ${COLORS.line}`, background: "transparent", color: COLORS.textMuted, fontSize: 12, cursor: "pointer" }}>Cancel</button>
@@ -1323,7 +1576,13 @@ function LogTab({ exercises, entries, exMap, unit, addExercise, addEntry, update
                     )}
                   </div>
                   <div className="flex items-center" style={{ gap: 10 }}>
-                    <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, color: COLORS.textMuted }}>{fmt(w)}{unit}{ex?.loadType === "perSide" ? "/side" : ""} × {e.reps}</span>
+                    <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, color: COLORS.textMuted }}>
+                      {isTimed(ex)
+                        ? `${formatDuration(e.durationSec)}${e.weightKg > 0 ? ` +${fmt(w)}${unit}` : ""}`
+                        : isBodyweight(ex)
+                          ? `${fmt(w)}${unit}${e.addedPortionKg > 0 ? ` (bw+${fmt(unit === "kg" ? e.addedPortionKg : kgToLb(e.addedPortionKg))}${unit})` : " (bw)"} × ${e.reps}`
+                          : `${fmt(w)}${unit}${ex?.loadType === "perSide" ? "/side" : ""} × ${e.reps}`}
+                    </span>
                     <button onClick={() => startEditEntry(e)} style={{ background: "none", border: "none", color: COLORS.textFaint, cursor: "pointer" }}><Pencil size={13} /></button>
                     <button onClick={() => deleteEntry(e.id)} style={{ background: "none", border: "none", color: COLORS.textFaint, cursor: "pointer" }}><Trash2 size={14} /></button>
                   </div>
@@ -1426,15 +1685,17 @@ function RoutinesTab({ exercises, exMap, routines, saveRoutines, weekPlan, saveW
 
 // ================= PR SHELF TAB =================
 function PRShelfTab({ exercises, entries, unit }) {
+  const exMapLocal = useMemo(() => Object.fromEntries(exercises.map((e) => [e.id, e])), [exercises]);
   const prs = useMemo(() => {
     const map = {};
     for (const e of entries) {
+      if (isTimed(exMapLocal[e.exerciseId])) continue; // "heaviest set" doesn't mean anything for a timed hold
       const w = unit === "kg" ? e.weightKg : kgToLb(e.weightKg);
       const cur = map[e.exerciseId];
       if (!cur || w > cur.weight || (w === cur.weight && e.reps > cur.reps)) map[e.exerciseId] = { weight: w, reps: e.reps, date: e.date };
     }
     return map;
-  }, [entries, unit]);
+  }, [entries, unit, exMapLocal]);
 
   const withPRs = exercises.filter((e) => prs[e.id]).sort((a, b) => prs[b.id].weight - prs[a.id].weight);
   if (withPRs.length === 0) return <EmptyState icon={Trophy} title="THE SHELF IS EMPTY" body="Log some heavy sets and your personal records will land here." />;
@@ -1474,6 +1735,7 @@ function PRShelfTab({ exercises, entries, unit }) {
 function ProgressTab({ exercises, entries, unit }) {
   const [exerciseId, setExerciseId] = useState(exercises[0]?.id || "");
   useEffect(() => { if (!exerciseId && exercises.length) setExerciseId(exercises[0].id); }, [exercises, exerciseId]);
+  const selectedEx = exercises.find((e) => e.id === exerciseId);
   const exEntries = entries.filter((e) => e.exerciseId === exerciseId);
 
   const byDate = useMemo(() => {
@@ -1500,7 +1762,9 @@ function ProgressTab({ exercises, entries, unit }) {
       <select value={exerciseId} onChange={(e) => setExerciseId(e.target.value)} style={{ padding: "9px 10px", borderRadius: 7, border: `1px solid ${COLORS.line}`, background: COLORS.surfaceRaised, color: COLORS.text, fontSize: 13.5, maxWidth: 320 }}>
         {CATEGORIES.map((c) => (<optgroup key={c} label={c}>{exercises.filter((e) => categoryOf(e) === c).map((e) => (<option key={e.id} value={e.id}>{e.name} · {e.muscle}</option>))}</optgroup>))}
       </select>
-      {byDate.length === 0 ? (
+      {isTimed(selectedEx) ? (
+        <EmptyState icon={Minus} title="NOT AVAILABLE FOR TIMED EXERCISES" body="Estimated 1RM and trend tracking are built around weight × reps, which doesn't apply to a timed hold. This isn't tracked yet for Timed-type exercises." />
+      ) : byDate.length === 0 ? (
         <EmptyState icon={TrendingUp} title="NO DATA YET" body="Log a few sets for this exercise on the Log tab and your progress curve will show up here." />
       ) : (
         <>
@@ -1660,6 +1924,294 @@ function VolumeTab({ exercises, entries, exMap, unit }) {
 }
 
 // ================= BODYWEIGHT TAB =================
+// ================= CARDIO TAB =================
+function CardioTab({ cardioEntries, unit, addCardio, updateCardio, deleteCardio, customCardioActivities, addCustomCardioActivity, deleteCustomCardioActivity, customSports, addCustomSport, deleteCustomSport }) {
+  const [mode, setMode] = useState("cardio"); // "cardio" | "sport"
+  const [date, setDate] = useState(todayStr());
+  const [activity, setActivity] = useState(CARDIO_ACTIVITIES[0]);
+  const [duration, setDuration] = useState("");
+  const [distance, setDistance] = useState("");
+  const [distUnit, setDistUnit] = useState(defaultDistUnit(CARDIO_ACTIVITIES[0], unit));
+  const [load, setLoad] = useState("");
+  const [calories, setCalories] = useState("");
+  const [notes, setNotes] = useState("");
+  const [showAddActivity, setShowAddActivity] = useState(false);
+  const [newActivityName, setNewActivityName] = useState("");
+
+  const [editingId, setEditingId] = useState(null);
+  const [editActivity, setEditActivity] = useState("");
+  const [editDuration, setEditDuration] = useState("");
+  const [editDistance, setEditDistance] = useState("");
+  const [editDistUnit, setEditDistUnit] = useState("km");
+  const [editLoad, setEditLoad] = useState("");
+  const [editCalories, setEditCalories] = useState("");
+  const [editNotes, setEditNotes] = useState("");
+  const [editDate, setEditDate] = useState("");
+
+  const activityList = mode === "sport" ? [...SPORTS_LIST, ...customSports] : [...CARDIO_ACTIVITIES, ...customCardioActivities];
+  const customList = mode === "sport" ? customSports : customCardioActivities;
+  const handleModeChange = (m) => {
+    setMode(m);
+    const list = m === "sport" ? [...SPORTS_LIST, ...customSports] : [...CARDIO_ACTIVITIES, ...customCardioActivities];
+    setActivity(list[0]);
+    setDistUnit(defaultDistUnit(list[0], unit));
+    setDistance(""); setLoad("");
+    setShowAddActivity(false); setNewActivityName("");
+  };
+  const handleActivityChange = (a) => { setActivity(a); setDistUnit(defaultDistUnit(a, unit)); };
+  const handleAddCustomActivity = () => {
+    const trimmed = newActivityName.trim();
+    if (!trimmed) return;
+    if (mode === "sport") addCustomSport(trimmed); else addCustomCardioActivity(trimmed);
+    setActivity(trimmed);
+    setDistUnit(defaultDistUnit(trimmed, unit));
+    setNewActivityName(""); setShowAddActivity(false);
+  };
+
+  const durationNum = parseFloat(duration);
+  const distanceNum = parseFloat(distance);
+  const canSubmit = mode === "sport" ? (activity && durationNum > 0) : (activity && (durationNum > 0 || distanceNum > 0));
+  const livePreview = useMemo(() => {
+    if (mode === "sport" || !(durationNum > 0) || !(distanceNum > 0)) return null;
+    return computePaceSpeed(durationNum, distanceToMeters(distanceNum, distUnit), unit);
+  }, [mode, durationNum, distanceNum, distUnit, unit]);
+
+  const submit = () => {
+    if (!canSubmit) return;
+    const loadNum = parseFloat(load);
+    addCardio({
+      id: genId(), date, activity,
+      durationMin: durationNum > 0 ? durationNum : null,
+      distanceM: mode === "sport" ? null : (distanceNum > 0 ? distanceToMeters(distanceNum, distUnit) : null),
+      loadKg: mode === "sport" ? null : (loadNum > 0 ? (unit === "kg" ? loadNum : lbToKg(loadNum)) : null),
+      calories: parseFloat(calories) > 0 ? parseFloat(calories) : null,
+      notes: notes.trim() || null,
+    });
+    setDuration(""); setDistance(""); setLoad(""); setCalories(""); setNotes("");
+  };
+
+  const todaysCardio = cardioEntries.filter((e) => e.date === date).sort((a, b) => (a.id < b.id ? 1 : -1));
+
+  const startEdit = (e) => {
+    setEditingId(e.id);
+    setEditActivity(e.activity);
+    setEditDuration(e.durationMin != null ? String(e.durationMin) : "");
+    const du = defaultDistUnit(e.activity, unit);
+    setEditDistUnit(du);
+    setEditDistance(e.distanceM != null ? String(fmt(metersToDisplay(e.distanceM, du))) : "");
+    setEditLoad(e.loadKg != null ? String(fmt(unit === "kg" ? e.loadKg : kgToLb(e.loadKg))) : "");
+    setEditCalories(e.calories != null ? String(e.calories) : "");
+    setEditNotes(e.notes || "");
+    setEditDate(e.date);
+  };
+  const cancelEdit = () => setEditingId(null);
+  const saveEdit = () => {
+    const d = parseFloat(editDuration), dist = parseFloat(editDistance);
+    if (!editActivity || !editDate || !(d > 0 || dist > 0)) return;
+    const loadNum = parseFloat(editLoad);
+    updateCardio(editingId, {
+      activity: editActivity, date: editDate,
+      durationMin: d > 0 ? d : null,
+      distanceM: dist > 0 ? distanceToMeters(dist, editDistUnit) : null,
+      loadKg: loadNum > 0 ? (unit === "kg" ? loadNum : lbToKg(loadNum)) : null,
+      calories: parseFloat(editCalories) > 0 ? parseFloat(editCalories) : null,
+      notes: editNotes.trim() || null,
+    });
+    setEditingId(null);
+  };
+
+  const shortUnitOptions = unit === "kg" ? [{ value: "m", label: "m" }, { value: "km", label: "km" }] : [{ value: "yd", label: "yd" }, { value: "mi", label: "mi" }];
+
+  return (
+    <div className="flex flex-col" style={{ gap: 20 }}>
+      <div style={{ background: COLORS.surface, border: `1px solid ${COLORS.line}`, borderRadius: 10, padding: 16 }}>
+        <div className="flex items-center justify-between" style={{ marginBottom: 14 }}>
+          <span style={{ fontSize: 12, color: COLORS.textMuted, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: 0.5 }}>LOG CARDIO</span>
+          <input type="date" value={date} onChange={(e) => setDate(e.target.value)}
+            style={{ padding: "6px 8px", borderRadius: 6, border: `1px solid ${COLORS.line}`, background: COLORS.surfaceRaised, color: COLORS.text, fontSize: 12 }} />
+        </div>
+
+        <div style={{ marginBottom: 12 }}>
+          <Segmented options={[{ value: "cardio", label: "Cardio" }, { value: "sport", label: "Sport" }]} value={mode} onChange={handleModeChange} />
+        </div>
+
+        <div className="flex items-center justify-between">
+          <label style={{ fontSize: 11, color: COLORS.textMuted }}>{mode === "sport" ? "Sport" : "Activity"}</label>
+          <button onClick={() => { setShowAddActivity((s) => !s); setNewActivityName(""); }}
+            className="flex items-center" style={{ gap: 4, background: "none", border: "none", color: CARDIO_COLOR, fontSize: 12, cursor: "pointer" }}>
+            <Plus size={13} /> {mode === "sport" ? "sport" : "activity"} not listed?
+          </button>
+        </div>
+        <select value={activity} onChange={(e) => handleActivityChange(e.target.value)}
+          style={{ width: "100%", padding: "9px 10px", marginTop: 5, marginBottom: showAddActivity ? 8 : 12, borderRadius: 7, border: `1px solid ${COLORS.line}`, background: COLORS.surfaceRaised, color: COLORS.text, fontSize: 13.5 }}>
+          {activityList.map((a) => <option key={a} value={a}>{a}</option>)}
+        </select>
+
+        {showAddActivity && (
+          <div style={{ marginBottom: 12, padding: 12, background: COLORS.surfaceRaised, borderRadius: 8, border: `1px solid ${COLORS.line}` }}>
+            <div className="flex" style={{ gap: 8, marginBottom: customList.length > 0 ? 10 : 0 }}>
+              <input value={newActivityName} onChange={(e) => setNewActivityName(e.target.value)} placeholder={mode === "sport" ? "e.g. Netball" : "e.g. Skiing"}
+                style={{ flex: 1, padding: "8px 10px", borderRadius: 6, border: `1px solid ${COLORS.line}`, background: COLORS.surface, color: COLORS.text, fontSize: 13 }} />
+              <button onClick={handleAddCustomActivity} disabled={!newActivityName.trim()}
+                style={{ padding: "8px 14px", borderRadius: 6, border: "none", background: newActivityName.trim() ? CARDIO_COLOR : COLORS.line, color: newActivityName.trim() ? "#fff" : COLORS.textFaint, fontWeight: 700, fontSize: 12.5, cursor: newActivityName.trim() ? "pointer" : "not-allowed" }}>
+                Add
+              </button>
+            </div>
+            {customList.length > 0 && (
+              <div className="flex" style={{ gap: 6, flexWrap: "wrap" }}>
+                {customList.map((c) => (
+                  <span key={c} className="flex items-center" style={{ gap: 5, fontSize: 11, padding: "3px 5px 3px 9px", borderRadius: 99, background: COLORS.surface, border: `1px solid ${COLORS.line}`, color: COLORS.textMuted }}>
+                    {c}
+                    <button onClick={() => (mode === "sport" ? deleteCustomSport(c) : deleteCustomCardioActivity(c))}
+                      style={{ background: "none", border: "none", color: COLORS.textFaint, cursor: "pointer", display: "flex", alignItems: "center", padding: 0 }}>
+                      <X size={11} />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {mode === "sport" ? (
+          <div className="flex" style={{ gap: 10, marginBottom: 12 }}>
+            <div style={{ flex: 1 }}>
+              <label style={{ fontSize: 11, color: COLORS.textMuted }}>Duration (min)</label>
+              <input type="number" inputMode="decimal" value={duration} onChange={(e) => setDuration(e.target.value)} placeholder="0"
+                style={{ width: "100%", padding: "9px 10px", marginTop: 5, borderRadius: 7, border: `1px solid ${COLORS.line}`, background: COLORS.surfaceRaised, color: COLORS.text, fontSize: 15, fontFamily: "'IBM Plex Mono', monospace" }} />
+            </div>
+          </div>
+        ) : (
+          <div className="flex" style={{ gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
+            <div style={{ flex: "1 1 100px" }}>
+              <label style={{ fontSize: 11, color: COLORS.textMuted }}>Duration (min)</label>
+              <input type="number" inputMode="decimal" value={duration} onChange={(e) => setDuration(e.target.value)} placeholder="0"
+                style={{ width: "100%", padding: "9px 10px", marginTop: 5, borderRadius: 7, border: `1px solid ${COLORS.line}`, background: COLORS.surfaceRaised, color: COLORS.text, fontSize: 15, fontFamily: "'IBM Plex Mono', monospace" }} />
+            </div>
+            <div style={{ flex: "1 1 100px" }}>
+              <label style={{ fontSize: 11, color: COLORS.textMuted }}>Distance</label>
+              <input type="number" inputMode="decimal" value={distance} onChange={(e) => setDistance(e.target.value)} placeholder="0"
+                style={{ width: "100%", padding: "9px 10px", marginTop: 5, borderRadius: 7, border: `1px solid ${COLORS.line}`, background: COLORS.surfaceRaised, color: COLORS.text, fontSize: 15, fontFamily: "'IBM Plex Mono', monospace" }} />
+            </div>
+            <div style={{ flex: "0 0 100px" }}>
+              <label style={{ fontSize: 11, color: COLORS.textMuted }}>Unit</label>
+              <div style={{ marginTop: 5 }}>
+                <Segmented options={shortUnitOptions} value={distUnit} onChange={setDistUnit} />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {livePreview && (
+          <div style={{ marginBottom: 12, padding: "8px 10px", background: COLORS.surfaceRaised, borderRadius: 7, border: `1px solid ${CARDIO_COLOR}55`, fontSize: 12.5, color: CARDIO_COLOR, fontFamily: "'IBM Plex Mono', monospace" }}>
+            {livePreview.pace} /{livePreview.unit} · {livePreview.speed} {livePreview.unit}/h
+          </div>
+        )}
+
+        <div className="flex" style={{ gap: 10, marginBottom: 12 }}>
+          {mode !== "sport" && (
+            <div style={{ flex: 1 }}>
+              <label style={{ fontSize: 11, color: COLORS.textMuted }}>Load ({unit}) — optional</label>
+              <input type="number" inputMode="decimal" value={load} onChange={(e) => setLoad(e.target.value)} placeholder="e.g. sled"
+                style={{ width: "100%", padding: "9px 10px", marginTop: 5, borderRadius: 7, border: `1px solid ${COLORS.line}`, background: COLORS.surfaceRaised, color: COLORS.text, fontSize: 14, fontFamily: "'IBM Plex Mono', monospace" }} />
+            </div>
+          )}
+          <div style={{ flex: 1 }}>
+            <label style={{ fontSize: 11, color: COLORS.textMuted }}>Calories — optional</label>
+            <input type="number" inputMode="decimal" value={calories} onChange={(e) => setCalories(e.target.value)} placeholder="0"
+              style={{ width: "100%", padding: "9px 10px", marginTop: 5, borderRadius: 7, border: `1px solid ${COLORS.line}`, background: COLORS.surfaceRaised, color: COLORS.text, fontSize: 14, fontFamily: "'IBM Plex Mono', monospace" }} />
+          </div>
+        </div>
+
+        <label style={{ fontSize: 11, color: COLORS.textMuted }}>Notes — optional</label>
+        <input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="e.g. hill intervals, felt strong"
+          style={{ width: "100%", padding: "9px 10px", marginTop: 5, marginBottom: 14, borderRadius: 7, border: `1px solid ${COLORS.line}`, background: COLORS.surfaceRaised, color: COLORS.text, fontSize: 13 }} />
+
+        <button onClick={submit} disabled={!canSubmit}
+          style={{ width: "100%", padding: "11px 0", borderRadius: 8, border: "none", background: canSubmit ? CARDIO_COLOR : COLORS.line, color: canSubmit ? "#fff" : COLORS.textFaint, fontWeight: 700, fontSize: 13.5, letterSpacing: 0.4, cursor: canSubmit ? "pointer" : "not-allowed" }}>
+          LOG SESSION
+        </button>
+      </div>
+
+      <div>
+        <div style={{ fontSize: 12, color: COLORS.textMuted, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: 0.5, marginBottom: 10 }}>
+          SESSIONS · {date === todayStr() ? "TODAY" : date}
+        </div>
+        {todaysCardio.length === 0 ? (
+          <div style={{ color: COLORS.textFaint, fontSize: 13, padding: "10px 2px" }}>No cardio logged for this date yet.</div>
+        ) : (
+          <div className="flex flex-col" style={{ gap: 6 }}>
+            {todaysCardio.map((e) => {
+              const isEditingEntry = editingId === e.id;
+              if (isEditingEntry) {
+                return (
+                  <div key={e.id} style={{ background: COLORS.surfaceRaised, border: `1px solid ${CARDIO_COLOR}`, borderRadius: 8, padding: 10 }}>
+                    <select value={editActivity} onChange={(ev) => { setEditActivity(ev.target.value); setEditDistUnit(defaultDistUnit(ev.target.value, unit)); }}
+                      style={{ width: "100%", padding: "7px 9px", marginBottom: 8, borderRadius: 6, border: `1px solid ${COLORS.line}`, background: COLORS.surface, color: COLORS.text, fontSize: 12.5 }}>
+                      {CARDIO_ACTIVITIES.map((a) => <option key={a} value={a}>{a}</option>)}
+                    </select>
+                    <div className="flex" style={{ gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
+                      <input type="number" value={editDuration} onChange={(ev) => setEditDuration(ev.target.value)} placeholder="min"
+                        style={{ flex: "1 1 70px", padding: "7px 9px", borderRadius: 6, border: `1px solid ${COLORS.line}`, background: COLORS.surface, color: COLORS.text, fontSize: 13, fontFamily: "'IBM Plex Mono', monospace" }} />
+                      <input type="number" value={editDistance} onChange={(ev) => setEditDistance(ev.target.value)} placeholder="distance"
+                        style={{ flex: "1 1 70px", padding: "7px 9px", borderRadius: 6, border: `1px solid ${COLORS.line}`, background: COLORS.surface, color: COLORS.text, fontSize: 13, fontFamily: "'IBM Plex Mono', monospace" }} />
+                      <select value={editDistUnit} onChange={(ev) => setEditDistUnit(ev.target.value)}
+                        style={{ flex: "0 0 60px", padding: "7px 6px", borderRadius: 6, border: `1px solid ${COLORS.line}`, background: COLORS.surface, color: COLORS.text, fontSize: 12 }}>
+                        {(unit === "kg" ? ["m", "km"] : ["yd", "mi"]).map((u) => <option key={u} value={u}>{u}</option>)}
+                      </select>
+                      <input type="date" value={editDate} onChange={(ev) => setEditDate(ev.target.value)}
+                        style={{ flex: "1 1 120px", padding: "7px 9px", borderRadius: 6, border: `1px solid ${COLORS.line}`, background: COLORS.surface, color: COLORS.text, fontSize: 12 }} />
+                    </div>
+                    <div className="flex" style={{ gap: 8, marginBottom: 8 }}>
+                      <input type="number" value={editLoad} onChange={(ev) => setEditLoad(ev.target.value)} placeholder={`load (${unit})`}
+                        style={{ flex: 1, padding: "7px 9px", borderRadius: 6, border: `1px solid ${COLORS.line}`, background: COLORS.surface, color: COLORS.text, fontSize: 13, fontFamily: "'IBM Plex Mono', monospace" }} />
+                      <input type="number" value={editCalories} onChange={(ev) => setEditCalories(ev.target.value)} placeholder="calories"
+                        style={{ flex: 1, padding: "7px 9px", borderRadius: 6, border: `1px solid ${COLORS.line}`, background: COLORS.surface, color: COLORS.text, fontSize: 13, fontFamily: "'IBM Plex Mono', monospace" }} />
+                    </div>
+                    <input value={editNotes} onChange={(ev) => setEditNotes(ev.target.value)} placeholder="notes"
+                      style={{ width: "100%", padding: "7px 9px", marginBottom: 8, borderRadius: 6, border: `1px solid ${COLORS.line}`, background: COLORS.surface, color: COLORS.text, fontSize: 12.5 }} />
+                    <div className="flex" style={{ gap: 8 }}>
+                      <button onClick={saveEdit} style={{ flex: 1, padding: "7px 0", borderRadius: 6, border: "none", background: COLORS.text, color: COLORS.bg, fontWeight: 700, fontSize: 12, cursor: "pointer" }}>Save</button>
+                      <button onClick={cancelEdit} style={{ padding: "7px 14px", borderRadius: 6, border: `1px solid ${COLORS.line}`, background: "transparent", color: COLORS.textMuted, fontSize: 12, cursor: "pointer" }}>Cancel</button>
+                    </div>
+                  </div>
+                );
+              }
+              const ps = computePaceSpeed(e.durationMin, e.distanceM, unit);
+              const distStr = formatDistance(e.distanceM, unit);
+              const loadDisplay = e.loadKg != null ? fmt(unit === "kg" ? e.loadKg : kgToLb(e.loadKg)) : null;
+              return (
+                <div key={e.id} style={{ background: COLORS.surface, border: `1px solid ${COLORS.line}`, borderRadius: 8, padding: "9px 12px" }}>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center" style={{ gap: 10 }}>
+                      <div style={{ width: 7, height: 7, borderRadius: 99, background: CARDIO_COLOR }} />
+                      <span style={{ fontSize: 13.5 }}>{e.activity}</span>
+                    </div>
+                    <div className="flex items-center" style={{ gap: 10 }}>
+                      <button onClick={() => startEdit(e)} style={{ background: "none", border: "none", color: COLORS.textFaint, cursor: "pointer" }}><Pencil size={13} /></button>
+                      <button onClick={() => deleteCardio(e.id)} style={{ background: "none", border: "none", color: COLORS.textFaint, cursor: "pointer" }}><Trash2 size={14} /></button>
+                    </div>
+                  </div>
+                  <div style={{ fontSize: 12, color: COLORS.textMuted, fontFamily: "'IBM Plex Mono', monospace", marginTop: 4 }}>
+                    {[
+                      e.durationMin ? `${e.durationMin} min` : null,
+                      distStr,
+                      ps ? `${ps.pace}/${ps.unit}` : null,
+                      loadDisplay ? `${loadDisplay}${unit} load` : null,
+                      e.calories ? `${e.calories} kcal` : null,
+                    ].filter(Boolean).join("   ")}
+                  </div>
+                  {e.notes && <div style={{ fontSize: 11.5, color: COLORS.textFaint, marginTop: 3, fontStyle: "italic" }}>{e.notes}</div>}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function BodyweightTab({ entries, unit, addBw, deleteBw }) {
   const [weight, setWeight] = useState("");
   const [date, setDate] = useState(todayStr());
@@ -2123,7 +2675,7 @@ function ExercisesTab({ exercises, entries, addExercise, updateExercise, deleteE
     setName("");
   };
 
-  const startEdit = (ex) => { setEditingId(ex.id); setEditName(ex.name); setEditMuscle(ex.muscle); setEditLoadType(ex.loadType === "perSide" ? "perSide" : "total"); setConfirmDeleteId(null); };
+  const startEdit = (ex) => { setEditingId(ex.id); setEditName(ex.name); setEditMuscle(ex.muscle); setEditLoadType(LOAD_TYPES.includes(ex.loadType) ? ex.loadType : "total"); setConfirmDeleteId(null); };
   const cancelEdit = () => setEditingId(null);
   const saveEdit = (id) => {
     if (!editName.trim()) return;
@@ -2146,11 +2698,14 @@ function ExercisesTab({ exercises, entries, addExercise, updateExercise, deleteE
         <div className="flex items-center" style={{ gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
           <label style={{ fontSize: 11, color: COLORS.textMuted, whiteSpace: "nowrap" }}>Load Type</label>
           <div style={{ flex: "1 1 220px", maxWidth: 260 }}>
-            <Segmented options={[{ value: "total", label: "Total" }, { value: "perSide", label: "Per Side" }]} value={loadType} onChange={setLoadType} />
+            <LoadTypePicker value={loadType} onChange={setLoadType} />
           </div>
         </div>
         <div style={{ fontSize: 10.5, color: COLORS.textFaint, marginBottom: 12 }}>
-          {loadType === "perSide" ? "You'll log the weight of one side (e.g. one dumbbell) — volume totals count both." : "You'll log the total combined weight (barbell, machine, bodyweight+added)."}
+          {loadType === "perSide" ? "You'll log the weight of one side (e.g. one dumbbell) — volume totals count both."
+            : loadType === "bodyweight" ? "Your latest logged bodyweight is used automatically, plus any extra weight you add (e.g. a dip belt)."
+            : loadType === "timed" ? "You'll log a duration instead of reps (e.g. a plank hold), with an optional added weight."
+            : "You'll log the total combined weight (barbell, machine, etc.)."}
         </div>
         <button onClick={handleAdd} disabled={!name.trim()} className="flex items-center justify-center"
           style={{ gap: 5, width: "100%", padding: "9px 16px", borderRadius: 7, border: "none", background: name.trim() ? COLORS.text : COLORS.line, color: name.trim() ? COLORS.bg : COLORS.textFaint, fontWeight: 700, fontSize: 12.5, cursor: name.trim() ? "pointer" : "not-allowed" }}>
@@ -2200,7 +2755,7 @@ function ExercisesTab({ exercises, entries, addExercise, updateExercise, deleteE
                           </select>
                         </div>
                         <div style={{ maxWidth: 260 }}>
-                          <Segmented options={[{ value: "total", label: "Total" }, { value: "perSide", label: "Per Side" }]} value={editLoadType} onChange={setEditLoadType} />
+                          <LoadTypePicker value={editLoadType} onChange={setEditLoadType} />
                         </div>
                         <div className="flex" style={{ gap: 8 }}>
                           <button onClick={() => saveEdit(ex.id)} style={{ flex: 1, padding: "7px 0", borderRadius: 6, border: "none", background: COLORS.text, color: COLORS.bg, fontWeight: 700, fontSize: 12, cursor: "pointer" }}>Save</button>
@@ -2223,8 +2778,10 @@ function ExercisesTab({ exercises, entries, addExercise, updateExercise, deleteE
                         <div className="flex items-center" style={{ gap: 8, flexWrap: "wrap" }}>
                           <span style={{ fontSize: 13.5 }}>{ex.name}</span>
                           <span style={{ fontSize: 10.5, padding: "2px 7px", borderRadius: 99, border: `1px solid ${MUSCLE_COLORS[ex.muscle] || COLORS.line}66`, color: MUSCLE_COLORS[ex.muscle] || COLORS.textFaint }}>{ex.muscle}</span>
-                          {ex.loadType === "perSide" && (
-                            <span style={{ fontSize: 10.5, padding: "2px 7px", borderRadius: 99, border: `1px solid ${COLORS.line}`, color: COLORS.textMuted }}>Per Side</span>
+                          {ex.loadType !== "total" && (
+                            <span style={{ fontSize: 10.5, padding: "2px 7px", borderRadius: 99, border: `1px solid ${COLORS.line}`, color: COLORS.textMuted }}>
+                              {LOAD_TYPE_OPTIONS.find((o) => o.value === ex.loadType)?.label}
+                            </span>
                           )}
                           {uses > 0 && <span style={{ fontSize: 10.5, color: COLORS.textFaint }}>{uses} logged</span>}
                         </div>
@@ -2246,7 +2803,7 @@ function ExercisesTab({ exercises, entries, addExercise, updateExercise, deleteE
 }
 
 // ================= HISTORY TAB =================
-function HistoryTab({ exercises, entries, exMap, bwEntries, unit }) {
+function HistoryTab({ exercises, entries, exMap, bwEntries, unit, cardioEntries }) {
   const [view, setView] = useState("calendar"); // calendar | week | month | year
 
   return (
@@ -2262,21 +2819,26 @@ function HistoryTab({ exercises, entries, exMap, bwEntries, unit }) {
         onChange={setView}
       />
       {view === "calendar" ? (
-        <CalendarView exercises={exercises} entries={entries} exMap={exMap} bwEntries={bwEntries} unit={unit} />
+        <CalendarView exercises={exercises} entries={entries} exMap={exMap} bwEntries={bwEntries} unit={unit} cardioEntries={cardioEntries} />
       ) : (
-        <PeriodSummary key={view} period={view} entries={entries} exMap={exMap} bwEntries={bwEntries} unit={unit} />
+        <PeriodSummary key={view} period={view} entries={entries} exMap={exMap} bwEntries={bwEntries} unit={unit} cardioEntries={cardioEntries} />
       )}
     </div>
   );
 }
 
-function CalendarView({ entries, exMap, bwEntries, unit }) {
+function CalendarView({ entries, exMap, bwEntries, unit, cardioEntries }) {
   const today = new Date();
   const [monthRef, setMonthRef] = useState(new Date(today.getFullYear(), today.getMonth(), 1));
   const [selectedDate, setSelectedDate] = useState(ymd(today));
 
   const dayIndex = useMemo(() => buildDayIndex(entries, exMap, unit), [entries, exMap, unit]);
   const bwByDate = useMemo(() => Object.fromEntries(bwEntries.map((e) => [e.date, e])), [bwEntries]);
+  const cardioByDate = useMemo(() => {
+    const map = {};
+    for (const e of cardioEntries) { (map[e.date] = map[e.date] || []).push(e); }
+    return map;
+  }, [cardioEntries]);
   const weeks = useMemo(() => getMonthGrid(monthRef.getFullYear(), monthRef.getMonth()), [monthRef]);
   const monthIndex = monthRef.getMonth();
   const todayStr2 = ymd(today);
@@ -2287,6 +2849,7 @@ function CalendarView({ entries, exMap, bwEntries, unit }) {
 
   const selectedInfo = selectedDate ? dayIndex[selectedDate] : null;
   const selectedBw = selectedDate ? bwByDate[selectedDate] : null;
+  const selectedCardio = selectedDate ? (cardioByDate[selectedDate] || []) : [];
 
   const iconBtnStyle = { padding: 8, borderRadius: 8, border: `1px solid ${COLORS.line}`, background: COLORS.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" };
 
@@ -2309,6 +2872,10 @@ function CalendarView({ entries, exMap, bwEntries, unit }) {
           </div>
         ))}
         <div className="flex items-center" style={{ gap: 5 }}>
+          <div style={{ width: 8, height: 8, borderRadius: 3, background: CARDIO_COLOR }} />
+          <span style={{ fontSize: 10.5, color: COLORS.textFaint }}>Cardio</span>
+        </div>
+        <div className="flex items-center" style={{ gap: 5 }}>
           <div style={{ width: 6, height: 6, borderRadius: 99, background: COLORS.text, border: `1px solid ${COLORS.textFaint}` }} />
           <span style={{ fontSize: 10.5, color: COLORS.textFaint }}>bodyweight logged</span>
         </div>
@@ -2326,18 +2893,20 @@ function CalendarView({ entries, exMap, bwEntries, unit }) {
           const inMonth = d.getMonth() === monthIndex;
           const info = dayIndex[dateStr];
           const hasBw = !!bwByDate[dateStr];
+          const hasCardio = !!(cardioByDate[dateStr] && cardioByDate[dateStr].length);
           const isSelected = dateStr === selectedDate;
           const isToday = dateStr === todayStr2;
           const cats = info ? CATEGORIES.filter((c) => info.byCategory[c]) : [];
-          const trained = cats.length > 0;
+          const fillColors = [...cats.map((c) => CATEGORY_COLORS[c]), ...(hasCardio ? [CARDIO_COLOR] : [])];
+          const trained = fillColors.length > 0;
 
           let fillBackground = COLORS.surface;
           if (trained) {
-            if (cats.length === 1) {
-              fillBackground = CATEGORY_COLORS[cats[0]];
+            if (fillColors.length === 1) {
+              fillBackground = fillColors[0];
             } else {
-              const n = cats.length;
-              const stops = cats.map((c, idx) => `${CATEGORY_COLORS[c]} ${(idx / n) * 360}deg ${((idx + 1) / n) * 360}deg`);
+              const n = fillColors.length;
+              const stops = fillColors.map((col, idx) => `${col} ${(idx / n) * 360}deg ${((idx + 1) / n) * 360}deg`);
               fillBackground = `conic-gradient(${stops.join(", ")})`;
             }
           }
@@ -2377,7 +2946,7 @@ function CalendarView({ entries, exMap, bwEntries, unit }) {
             <div style={{ fontSize: 12, color: COLORS.textMuted, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: 0.5, marginBottom: 12 }}>
               {fmtDayFull(parseYmd(selectedDate)).toUpperCase()}
             </div>
-            {!selectedInfo && !selectedBw ? (
+            {!selectedInfo && !selectedBw && selectedCardio.length === 0 ? (
               <div style={{ color: COLORS.textFaint, fontSize: 13, padding: "8px 0" }}>No training logged on this day.</div>
             ) : (
               <div className="flex flex-col" style={{ gap: 16 }}>
@@ -2399,7 +2968,12 @@ function CalendarView({ entries, exMap, bwEntries, unit }) {
                                 <span style={{ fontSize: 13 }}>{ex?.name || "Unknown exercise"}</span>
                               </div>
                               <div style={{ fontSize: 12, color: COLORS.textMuted, fontFamily: "'IBM Plex Mono', monospace" }}>
-                                {sets.map((s) => `${fmt(s.weight)}${unit}${ex?.loadType === "perSide" ? "/side" : ""}×${s.reps}`).join("   ")}
+                                {sets.map((s) => isTimed(ex)
+                                  ? `${formatDuration(s.durationSec)}${s.weight > 0 ? ` +${fmt(s.weight)}${unit}` : ""}`
+                                  : isBodyweight(ex)
+                                    ? `${fmt(s.weight)}${unit}${s.addedPortionKg > 0 ? ` (bw+${fmt(unit === "kg" ? s.addedPortionKg : kgToLb(s.addedPortionKg))}${unit})` : " (bw)"}×${s.reps}`
+                                    : `${fmt(s.weight)}${unit}${ex?.loadType === "perSide" ? "/side" : ""}×${s.reps}`
+                                ).join("   ")}
                               </div>
                             </div>
                           );
@@ -2408,6 +2982,28 @@ function CalendarView({ entries, exMap, bwEntries, unit }) {
                     </div>
                     <MuscleBreakdown byMuscle={selectedInfo.byMuscle} unit={unit} />
                   </>
+                )}
+                {selectedCardio.length > 0 && (
+                  <div>
+                    <div style={{ fontSize: 11, color: COLORS.textMuted, marginBottom: 8 }}>CARDIO</div>
+                    <div className="flex flex-col" style={{ gap: 6 }}>
+                      {selectedCardio.map((e) => {
+                        const ps = computePaceSpeed(e.durationMin, e.distanceM, unit);
+                        const distStr = formatDistance(e.distanceM, unit);
+                        return (
+                          <div key={e.id} style={{ background: COLORS.surfaceRaised, borderRadius: 8, padding: "8px 12px" }}>
+                            <div className="flex items-center" style={{ gap: 7, marginBottom: 4 }}>
+                              <div style={{ width: 7, height: 7, borderRadius: 99, background: CARDIO_COLOR }} />
+                              <span style={{ fontSize: 13 }}>{e.activity}</span>
+                            </div>
+                            <div style={{ fontSize: 12, color: COLORS.textMuted, fontFamily: "'IBM Plex Mono', monospace" }}>
+                              {[e.durationMin ? `${e.durationMin} min` : null, distStr, ps ? `${ps.pace}/${ps.unit}` : null].filter(Boolean).join("   ")}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
                 )}
                 {selectedBw && (
                   <StatCard label="BODYWEIGHT" value={`${fmt(unit === "kg" ? selectedBw.weightKg : kgToLb(selectedBw.weightKg))}${unit}`} sub="logged this day" color={CATEGORY_COLORS.Legs} />
@@ -2421,7 +3017,7 @@ function CalendarView({ entries, exMap, bwEntries, unit }) {
   );
 }
 
-function PeriodSummary({ period, entries, exMap, bwEntries, unit }) {
+function PeriodSummary({ period, entries, exMap, bwEntries, unit, cardioEntries }) {
   const [refDate, setRefDate] = useState(new Date());
 
   const range = useMemo(() => {
@@ -2435,6 +3031,21 @@ function PeriodSummary({ period, entries, exMap, bwEntries, unit }) {
     : period === "month" ? fmtMonthYear(refDate) : String(refDate.getFullYear());
 
   const agg = useMemo(() => aggregateEntriesInRange(entries, exMap, unit, range.start, range.end), [entries, exMap, unit, range]);
+
+  const cardioAgg = useMemo(() => {
+    const s = ymd(range.start), e = ymd(range.end);
+    const inRange = cardioEntries.filter((c) => c.date >= s && c.date <= e);
+    let totalMin = 0; const sessionDays = new Set(); const byActivity = {};
+    for (const c of inRange) {
+      totalMin += c.durationMin || 0;
+      sessionDays.add(c.date);
+      if (!byActivity[c.activity]) byActivity[c.activity] = { count: 0, durationMin: 0, distanceM: 0 };
+      byActivity[c.activity].count += 1;
+      byActivity[c.activity].durationMin += c.durationMin || 0;
+      byActivity[c.activity].distanceM += c.distanceM || 0;
+    }
+    return { totalMin, sessionDays, byActivity, count: inRange.length };
+  }, [cardioEntries, range]);
 
   const buckets = useMemo(() => {
     if (period === "week") {
@@ -2474,6 +3085,7 @@ function PeriodSummary({ period, entries, exMap, bwEntries, unit }) {
 
   const barSeries = CATEGORIES.filter((c) => agg.byCategory[c]).map((c) => ({ dataKey: c, color: CATEGORY_COLORS[c], label: c }));
   const iconBtnStyle = { padding: 8, borderRadius: 8, border: `1px solid ${COLORS.line}`, background: COLORS.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" };
+  const nothingLogged = agg.totalSets === 0 && cardioAgg.count === 0;
 
   return (
     <div className="flex flex-col" style={{ gap: 16 }}>
@@ -2488,33 +3100,59 @@ function PeriodSummary({ period, entries, exMap, bwEntries, unit }) {
         <button onClick={goNext} style={iconBtnStyle}><ChevronRight size={16} color={COLORS.textMuted} /></button>
       </div>
 
-      {agg.totalSets === 0 ? (
-        <EmptyState icon={CalendarDays} title="NOTHING LOGGED" body={`No sets logged for this ${period}.`} />
+      {nothingLogged ? (
+        <EmptyState icon={CalendarDays} title="NOTHING LOGGED" body={`No training logged for this ${period}.`} />
       ) : (
         <>
-          <div className="flex" style={{ gap: 10, flexWrap: "wrap" }}>
-            <StatCard label="SESSIONS" value={agg.sessionDays.size} sub={`day${agg.sessionDays.size === 1 ? "" : "s"} trained`} color={CATEGORY_COLORS.Push} />
-            <StatCard label="TOTAL VOLUME" value={`${Math.round(agg.totalVolume).toLocaleString()}${unit}`} sub={`${agg.totalSets} sets`} color={CATEGORY_COLORS.Pull} />
-            <StatCard label="TOTAL REPS" value={agg.totalReps} sub="across all sets" color={CATEGORY_COLORS.Legs} />
-            {bwChange !== null && (
-              <StatCard label="BODYWEIGHT" value={`${bwChange >= 0 ? "+" : ""}${fmt(bwChange)}${unit}`} sub={`over this ${period}`} color={bwChange >= 0 ? CATEGORY_COLORS.Push : CATEGORY_COLORS.Pull} />
-            )}
-          </div>
+          {agg.totalSets > 0 && (
+            <>
+              <div className="flex" style={{ gap: 10, flexWrap: "wrap" }}>
+                <StatCard label="SESSIONS" value={agg.sessionDays.size} sub={`day${agg.sessionDays.size === 1 ? "" : "s"} trained`} color={CATEGORY_COLORS.Push} />
+                <StatCard label="TOTAL VOLUME" value={`${Math.round(agg.totalVolume).toLocaleString()}${unit}`} sub={`${agg.totalSets} sets`} color={CATEGORY_COLORS.Pull} />
+                <StatCard label="TOTAL REPS" value={agg.totalReps} sub="across all sets" color={CATEGORY_COLORS.Legs} />
+                {bwChange !== null && (
+                  <StatCard label="BODYWEIGHT" value={`${bwChange >= 0 ? "+" : ""}${fmt(bwChange)}${unit}`} sub={`over this ${period}`} color={bwChange >= 0 ? CATEGORY_COLORS.Push : CATEGORY_COLORS.Pull} />
+                )}
+              </div>
 
-          <div style={{ background: COLORS.surface, border: `1px solid ${COLORS.line}`, borderRadius: 10, padding: "16px 8px 8px" }}>
-            <div style={{ fontSize: 12, color: COLORS.textMuted, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: 0.5, padding: "0 12px 6px" }}>
-              VOLUME BY {period === "week" ? "DAY" : period === "month" ? "WEEK" : "MONTH"}
-            </div>
-            <ChartLegend items={barSeries.map((s) => ({ label: s.label, color: s.color }))} />
-            <SimpleStackedBarChart data={chartData} xKey="label" unit={unit} series={barSeries} />
-          </div>
+              <div style={{ background: COLORS.surface, border: `1px solid ${COLORS.line}`, borderRadius: 10, padding: "16px 8px 8px" }}>
+                <div style={{ fontSize: 12, color: COLORS.textMuted, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: 0.5, padding: "0 12px 6px" }}>
+                  VOLUME BY {period === "week" ? "DAY" : period === "month" ? "WEEK" : "MONTH"}
+                </div>
+                <ChartLegend items={barSeries.map((s) => ({ label: s.label, color: s.color }))} />
+                <SimpleStackedBarChart data={chartData} xKey="label" unit={unit} series={barSeries} />
+              </div>
 
-          <div>
-            <div style={{ fontSize: 11, color: COLORS.textMuted, marginBottom: 8 }}>BY CATEGORY</div>
-            <CategoryBreakdown byCategory={agg.byCategory} unit={unit} />
-          </div>
+              <div>
+                <div style={{ fontSize: 11, color: COLORS.textMuted, marginBottom: 8 }}>BY CATEGORY</div>
+                <CategoryBreakdown byCategory={agg.byCategory} unit={unit} />
+              </div>
 
-          <MuscleBreakdown byMuscle={agg.byMuscle} unit={unit} />
+              <MuscleBreakdown byMuscle={agg.byMuscle} unit={unit} />
+            </>
+          )}
+
+          {cardioAgg.count > 0 && (
+            <>
+              <div className="flex" style={{ gap: 10, flexWrap: "wrap" }}>
+                <StatCard label="CARDIO SESSIONS" value={cardioAgg.sessionDays.size} sub={`${cardioAgg.count} session${cardioAgg.count === 1 ? "" : "s"} logged`} color={CARDIO_COLOR} />
+                <StatCard label="CARDIO MINUTES" value={Math.round(cardioAgg.totalMin)} sub={`over this ${period}`} color={CARDIO_COLOR} />
+              </div>
+              <div>
+                <div style={{ fontSize: 11, color: COLORS.textMuted, marginBottom: 8 }}>CARDIO BY ACTIVITY</div>
+                <div className="flex flex-col" style={{ gap: 6 }}>
+                  {Object.entries(cardioAgg.byActivity).map(([act, d]) => (
+                    <div key={act} className="flex items-center justify-between" style={{ padding: "8px 12px", background: COLORS.surface, border: `1px solid ${COLORS.line}`, borderRadius: 8 }}>
+                      <span style={{ fontSize: 13, color: CARDIO_COLOR }}>{act}</span>
+                      <span style={{ fontSize: 11.5, color: COLORS.textFaint, fontFamily: "'IBM Plex Mono', monospace" }}>
+                        {[d.durationMin ? `${Math.round(d.durationMin)} min` : null, d.distanceM ? formatDistance(d.distanceM, unit) : null, `${d.count} session${d.count === 1 ? "" : "s"}`].filter(Boolean).join(" · ")}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
         </>
       )}
     </div>
@@ -2582,7 +3220,7 @@ function MuscleBreakdown({ byMuscle, unit, title = "BY MUSCLE GROUP" }) {
 }
 
 // ================= SETTINGS PANEL (Backup & Restore) =================
-const BACKUP_KEYS = ["exercises", "workout_entries", "bodyweight_entries", "unit_pref", "theme_pref", "routines", "week_plan", "food_entries", "favorite_foods", "profile"];
+const BACKUP_KEYS = ["exercises", "workout_entries", "bodyweight_entries", "unit_pref", "theme_pref", "routines", "week_plan", "food_entries", "favorite_foods", "cardio_entries", "custom_cardio_activities", "custom_sports", "profile"];
 
 function SettingsPanel({ exercises, entries, bwEntries, routines, foodEntries, onClose, theme, setTheme }) {
   const [status, setStatus] = useState(null); // { type: "success" | "error", message }
