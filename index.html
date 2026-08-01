@@ -468,6 +468,29 @@ function computeTrendStatus(sessions) {
   if (last.e1rm < priorAvg * 0.97) return { status: "declining", label: "Stalling" };
   return { status: "steady", label: "Holding steady" };
 }
+// Trailing calendar-day rolling average (not "last N entries"), so gaps in logging don't skew it.
+function rollingAverage(sortedByDate, windowDays, valueKey) {
+  return sortedByDate.map((d) => {
+    const cutoff = ymd(addDays(parseYmd(d.date), -(windowDays - 1)));
+    const window = sortedByDate.filter((x) => x.date >= cutoff && x.date <= d.date);
+    const avg = window.reduce((s, x) => s + x[valueKey], 0) / window.length;
+    return { ...d, avg };
+  });
+}
+// Least-squares linear regression slope (change in value per day), given ascending [{date, value}].
+function linearRegressionSlopePerDay(points) {
+  if (points.length < 2) return null;
+  const x0 = parseYmd(points[0].date).getTime();
+  const xs = points.map((p) => (parseYmd(p.date).getTime() - x0) / 86400000);
+  const ys = points.map((p) => p.value);
+  const n = xs.length;
+  const sumX = xs.reduce((a, b) => a + b, 0), sumY = ys.reduce((a, b) => a + b, 0);
+  const sumXY = xs.reduce((s, x, i) => s + x * ys[i], 0);
+  const sumXX = xs.reduce((s, x) => s + x * x, 0);
+  const denom = n * sumXX - sumX * sumX;
+  if (denom === 0) return 0;
+  return (n * sumXY - sumX * sumY) / denom;
+}
 function kgToLb(kg) { return kg * 2.20462; }
 function lbToKg(lb) { return lb / 2.20462; }
 
@@ -1263,7 +1286,7 @@ function GymTracker() {
       return <PRShelfTab exercises={exercises} entries={entries} unit={unit} />;
     }
     if (key === "progress") {
-      return <ProgressTab exercises={exercises} entries={entries} unit={unit} />;
+      return <ProgressTab exercises={exercises} entries={entries} unit={unit} bwEntries={bwEntries} />;
     }
     if (key === "volume") {
       return <VolumeTab exercises={exercises} entries={entries} exMap={exMap} unit={unit} />;
@@ -1837,7 +1860,7 @@ function PRShelfTab({ exercises, entries, unit }) {
 }
 
 // ================= PROGRESS TAB =================
-function ProgressTab({ exercises, entries, unit }) {
+function ProgressTab({ exercises, entries, unit, bwEntries }) {
   const [exerciseId, setExerciseId] = useState(exercises[0]?.id || "");
   useEffect(() => { if (!exerciseId && exercises.length) setExerciseId(exercises[0].id); }, [exercises, exerciseId]);
   const selectedEx = exercises.find((e) => e.id === exerciseId);
@@ -1861,6 +1884,8 @@ function ProgressTab({ exercises, entries, unit }) {
     declining: { icon: TrendingDown, color: CATEGORY_COLORS.Push },
     new: { icon: Minus, color: COLORS.textFaint },
   };
+  const latestBwKg = latestBodyweightKg(bwEntries);
+  const relativeStrength = pr && latestBwKg > 0 ? pr.e1rm / (unit === "kg" ? latestBwKg : kgToLb(latestBwKg)) : null;
 
   return (
     <div className="flex flex-col" style={{ gap: 16 }}>
@@ -1887,6 +1912,9 @@ function ProgressTab({ exercises, entries, unit }) {
               <StatCard label="EST. 1RM PR" value={`${fmt(pr.e1rm)}${unit}`} sub={pr.date} color={CATEGORY_COLORS.Push} />
               <StatCard label="TOP SET WEIGHT" value={`${fmt(pr.topWeight)}${unit} × ${pr.reps}`} sub="on PR day" color={CATEGORY_COLORS.Pull} />
               <StatCard label="SESSIONS LOGGED" value={byDate.length} sub="total dates" color={CATEGORY_COLORS.Legs} />
+              {relativeStrength !== null && (
+                <StatCard label="RELATIVE STRENGTH" value={`${fmt(relativeStrength)}×`} sub="est. 1RM ÷ bodyweight" color={CATEGORY_COLORS.Core} />
+              )}
             </div>
           )}
           <div style={{ background: COLORS.surface, border: `1px solid ${COLORS.line}`, borderRadius: 10, padding: "16px 8px 8px" }}>
@@ -2358,6 +2386,106 @@ function CardioTab({ cardioEntries, unit, addCardio, updateCardio, deleteCardio,
 
 // ================= CARDIO PROGRESS VIEW (Cardio activities only) =================
 function CardioProgressView({ cardioEntries, unit, customCardioActivities, allSportNames }) {
+  const [subView, setSubView] = useState("activity"); // "activity" | "overview" | "prshelf"
+  return (
+    <div className="flex flex-col" style={{ gap: 16 }}>
+      <Segmented options={[{ value: "activity", label: "By Activity" }, { value: "overview", label: "Overview" }, { value: "prshelf", label: "PR Shelf" }]} value={subView} onChange={setSubView} />
+      {subView === "activity" && <CardioByActivityView cardioEntries={cardioEntries} unit={unit} customCardioActivities={customCardioActivities} allSportNames={allSportNames} />}
+      {subView === "overview" && <CardioOverviewView cardioEntries={cardioEntries} unit={unit} />}
+      {subView === "prshelf" && <CardioPRShelfView cardioEntries={cardioEntries} unit={unit} allSportNames={allSportNames} />}
+    </div>
+  );
+}
+
+// ================= CARDIO OVERVIEW (all activities + sports combined) =================
+function CardioOverviewView({ cardioEntries, unit }) {
+  const weeklyData = useMemo(() => {
+    if (cardioEntries.length === 0) return [];
+    const sorted = [...cardioEntries].sort((a, b) => a.date.localeCompare(b.date));
+    let cursor = startOfWeek(parseYmd(sorted[0].date));
+    const today = new Date();
+    const weeks = [];
+    while (cursor <= today) { weeks.push({ start: cursor, end: addDays(cursor, 6) }); cursor = addDays(cursor, 7); }
+    return weeks.map((w) => {
+      const s = ymd(w.start), e = ymd(w.end);
+      const inWeek = cardioEntries.filter((c) => c.date >= s && c.date <= e);
+      return {
+        label: fmtDateShort(w.start),
+        minutes: inWeek.reduce((sum, c) => sum + (c.durationMin || 0), 0),
+        calories: inWeek.reduce((sum, c) => sum + (c.calories || 0), 0),
+      };
+    });
+  }, [cardioEntries]);
+
+  const recentWeeks = weeklyData.slice(-8);
+  const totalMinAllTime = cardioEntries.reduce((s, c) => s + (c.durationMin || 0), 0);
+  const totalCalAllTime = cardioEntries.reduce((s, c) => s + (c.calories || 0), 0);
+
+  if (cardioEntries.length === 0) {
+    return <EmptyState icon={Activity} title="NO DATA YET" body="Log some cardio or sport sessions and your overall trends will show up here." />;
+  }
+
+  return (
+    <div className="flex flex-col" style={{ gap: 16 }}>
+      <div style={{ fontSize: 10.5, color: COLORS.textFaint }}>Includes everything logged here — Cardio and Sport sessions both.</div>
+      <div className="flex" style={{ gap: 12, flexWrap: "wrap" }}>
+        <StatCard label="TOTAL SESSIONS" value={cardioEntries.length} sub="all time" color={CARDIO_COLOR} />
+        <StatCard label="TOTAL MINUTES" value={Math.round(totalMinAllTime).toLocaleString()} sub="all time" color={CATEGORY_COLORS.Pull} />
+        {totalCalAllTime > 0 && <StatCard label="TOTAL CALORIES" value={Math.round(totalCalAllTime).toLocaleString()} sub="logged, all time" color={CATEGORY_COLORS.Push} />}
+      </div>
+      <div style={{ background: COLORS.surface, border: `1px solid ${COLORS.line}`, borderRadius: 10, padding: 16 }}>
+        <div style={{ fontSize: 12, color: COLORS.textMuted, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: 0.5, marginBottom: 12 }}>MINUTES PER WEEK (last 8 weeks)</div>
+        <SimpleLineChart data={recentWeeks} xKey="label" unit="m" lines={[{ dataKey: "minutes", color: CARDIO_COLOR, label: "Minutes" }]} />
+      </div>
+      {recentWeeks.some((w) => w.calories > 0) && (
+        <div style={{ background: COLORS.surface, border: `1px solid ${COLORS.line}`, borderRadius: 10, padding: 16 }}>
+          <div style={{ fontSize: 12, color: COLORS.textMuted, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: 0.5, marginBottom: 12 }}>CALORIES PER WEEK (last 8 weeks)</div>
+          <SimpleLineChart data={recentWeeks} xKey="label" unit="" lines={[{ dataKey: "calories", color: CATEGORY_COLORS.Push, label: "Calories" }]} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ================= CARDIO PR SHELF (Cardio activities only) =================
+function CardioPRShelfView({ cardioEntries, unit, allSportNames }) {
+  const prs = useMemo(() => {
+    const map = {};
+    for (const e of cardioEntries) {
+      if (cardioEntryType(e, allSportNames) !== "cardio") continue;
+      const m = getCardioMetric(e, unit);
+      if (!m) continue;
+      const cur = map[e.activity];
+      if (!cur) { map[e.activity] = { activity: e.activity, metric: m, date: e.date }; continue; }
+      if (m.kind === "pace" && cur.metric.kind === "duration") map[e.activity] = { activity: e.activity, metric: m, date: e.date };
+      else if (m.kind === cur.metric.kind && compareCardioMetric(m, cur.metric) > 0) map[e.activity] = { activity: e.activity, metric: m, date: e.date };
+    }
+    return Object.values(map).sort((a, b) => a.activity.localeCompare(b.activity));
+  }, [cardioEntries, unit, allSportNames]);
+
+  if (prs.length === 0) return <EmptyState icon={Trophy} title="THE SHELF IS EMPTY" body="Log some Cardio-mode sessions and your personal bests will land here." />;
+
+  return (
+    <div className="flex flex-col" style={{ gap: 10 }}>
+      {prs.map((p) => (
+        <div key={p.activity} className="flex items-center justify-between" style={{ background: COLORS.surface, border: `1px solid ${COLORS.line}`, borderRadius: 10, padding: "12px 16px" }}>
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 600 }}>{p.activity}</div>
+            <div style={{ fontSize: 11, color: COLORS.textFaint }}>{p.date}</div>
+          </div>
+          <div style={{ textAlign: "right" }}>
+            <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 16, fontWeight: 700, color: CARDIO_COLOR }}>
+              {p.metric.kind === "pace" ? `${formatPace(p.metric.value)}/${p.metric.unit}` : `${Math.round(p.metric.value)} min`}
+            </div>
+            <div style={{ fontSize: 10.5, color: COLORS.textFaint }}>{p.metric.kind === "pace" ? "best pace" : "longest session"}</div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function CardioByActivityView({ cardioEntries, unit, customCardioActivities, allSportNames }) {
   const activityOptions = [...CARDIO_ACTIVITIES, ...customCardioActivities];
   const [activity, setActivity] = useState(activityOptions[0] || "");
 
@@ -2443,14 +2571,37 @@ function CardioProgressView({ cardioEntries, unit, customCardioActivities, allSp
 function BodyweightTab({ entries, unit, addBw, deleteBw }) {
   const [weight, setWeight] = useState("");
   const [date, setDate] = useState(todayStr());
+  const [period, setPeriod] = useState("30d");
   const submit = () => {
     const w = parseFloat(weight); if (!(w > 0)) return;
     const weightKg = unit === "kg" ? w : lbToKg(w);
     addBw({ id: genId(), date, weightKg }); setWeight("");
   };
-  const data = entries.map((e) => ({ date: e.date, id: e.id, weight: unit === "kg" ? e.weightKg : kgToLb(e.weightKg) }));
+  const data = useMemo(() =>
+    [...entries].sort((a, b) => a.date.localeCompare(b.date)).map((e) => ({ date: e.date, id: e.id, weight: unit === "kg" ? e.weightKg : kgToLb(e.weightKg) })),
+    [entries, unit]
+  );
   const latest = data[data.length - 1]; const first = data[0];
   const change = latest && first ? latest.weight - first.weight : 0;
+
+  const withAvg = useMemo(() => rollingAverage(data, 7, "weight").map((d) => ({ ...d, avg: fmt(d.avg) })), [data]);
+
+  const PERIOD_DAYS = { "7d": 7, "30d": 30, "90d": 90, all: null };
+  const cutoffDate = PERIOD_DAYS[period] ? ymd(addDays(new Date(), -(PERIOD_DAYS[period] - 1))) : null;
+  const periodData = useMemo(() => (cutoffDate ? withAvg.filter((d) => d.date >= cutoffDate) : withAvg), [withAvg, cutoffDate]);
+
+  const periodStats = useMemo(() => {
+    if (periodData.length === 0) return null;
+    const weights = periodData.map((d) => d.weight);
+    const min = Math.min(...weights), max = Math.max(...weights);
+    return { min, max, range: max - min };
+  }, [periodData]);
+
+  const rateOfChange = useMemo(() => {
+    if (periodData.length < 2) return null;
+    const slopePerDay = linearRegressionSlopePerDay(periodData.map((d) => ({ date: d.date, value: d.avg })));
+    return slopePerDay == null ? null : slopePerDay * 7;
+  }, [periodData]);
 
   return (
     <div className="flex flex-col" style={{ gap: 16 }}>
@@ -2476,11 +2627,33 @@ function BodyweightTab({ entries, unit, addBw, deleteBw }) {
           </div>
         )}
       </div>
+
+      {data.length > 0 && (
+        <>
+          <Segmented options={[{ value: "7d", label: "7D" }, { value: "30d", label: "30D" }, { value: "90d", label: "90D" }, { value: "all", label: "All" }]} value={period} onChange={setPeriod} />
+
+          {periodStats && (
+            <div className="flex" style={{ gap: 12, flexWrap: "wrap" }}>
+              <StatCard label="MIN" value={`${fmt(periodStats.min)}${unit}`} color={CATEGORY_COLORS.Pull} />
+              <StatCard label="MAX" value={`${fmt(periodStats.max)}${unit}`} color={CATEGORY_COLORS.Push} />
+              <StatCard label="RANGE" value={`${fmt(periodStats.range)}${unit}`} color={CATEGORY_COLORS.Core} />
+              {rateOfChange !== null && (
+                <StatCard label="RATE OF CHANGE" value={`${rateOfChange >= 0 ? "+" : ""}${fmt(rateOfChange)}${unit}/wk`} sub="from 7-day avg" color={rateOfChange >= 0 ? CATEGORY_COLORS.Push : CATEGORY_COLORS.Pull} />
+              )}
+            </div>
+          )}
+        </>
+      )}
+
       {data.length === 0 ? (
         <EmptyState icon={Scale} title="NO ENTRIES YET" body="Log your bodyweight regularly to see your trend over time." />
       ) : (
         <div style={{ background: COLORS.surface, border: `1px solid ${COLORS.line}`, borderRadius: 10, padding: "16px 8px 8px" }}>
-          <SimpleLineChart data={data} xKey="date" unit={unit} lines={[{ dataKey: "weight", color: CATEGORY_COLORS.Legs, label: "Bodyweight" }]} />
+          <div style={{ fontSize: 10.5, color: COLORS.textFaint, padding: "0 8px 8px" }}>Daily weight is noisy — the 7-day average is usually the more honest trend line.</div>
+          <SimpleLineChart data={periodData} xKey="date" unit={unit} lines={[
+            { dataKey: "avg", color: CATEGORY_COLORS.Legs, label: "7-day avg" },
+            { dataKey: "weight", color: COLORS.textFaint, label: "Daily", dashed: true },
+          ]} />
         </div>
       )}
       {data.length > 0 && (
@@ -2558,6 +2731,28 @@ function NutritionTab({ bwEntries, unit, foodEntries, addFood, deleteFood, profi
   const tdee = bmr ? bmr * activity.mult : null;
   const target = tdee ? tdee + goal.delta : null;
   const macroTargets = target && latestWeightKg ? estimateMacroTargets(latestWeightKg, profile.goal, target) : null;
+
+  // Reverse-engineers actual maintenance calories from real logs — usually more accurate than
+  // the Mifflin-St Jeor formula, but only trustworthy with enough consistent logging.
+  const actualTDEE = useMemo(() => {
+    const bwSorted = [...bwEntries].sort((a, b) => a.date.localeCompare(b.date));
+    if (bwSorted.length < 2) return null;
+    const windowStart = ymd(addDays(new Date(), -29));
+    const bwInWindow = bwSorted.filter((b) => b.date >= windowStart);
+    if (bwInWindow.length < 2) return null;
+    const firstBw = bwInWindow[0], lastBw = bwInWindow[bwInWindow.length - 1];
+    const spanDays = Math.round((parseYmd(lastBw.date) - parseYmd(firstBw.date)) / 86400000);
+    if (spanDays < 10) return null;
+    const foodInSpan = foodEntries.filter((f) => f.date >= firstBw.date && f.date <= lastBw.date);
+    const daysLogged = new Set(foodInSpan.map((f) => f.date)).size;
+    const coverage = daysLogged / (spanDays + 1);
+    if (coverage < 0.7) return null;
+    const totalCalories = foodInSpan.reduce((s, f) => s + f.calories, 0);
+    const avgDailyCalories = totalCalories / daysLogged;
+    const weightChangeKg = lastBw.weightKg - firstBw.weightKg;
+    const tdeeEstimate = avgDailyCalories - (weightChangeKg / spanDays) * 7700;
+    return { tdee: tdeeEstimate, avgDailyCalories, weightChangeKg, spanDays, daysLogged };
+  }, [foodEntries, bwEntries]);
 
   const { ft, inch } = cmToFtIn(profile.heightCm);
 
@@ -2688,6 +2883,26 @@ function NutritionTab({ bwEntries, unit, foodEntries, addFood, deleteFood, profi
         <div style={{ fontSize: 10.5, color: COLORS.textFaint, marginTop: 10 }}>
           Estimated using the Mifflin-St Jeor formula from your latest logged bodyweight. Protein is set relative to your bodyweight, fat at roughly a quarter of your calories, and carbs fill what's left. Treat all of this as a starting point — adjust based on how your weight and energy actually trend over a few weeks.
         </div>
+      </div>
+
+      <div style={{ background: COLORS.surface, border: `1px solid ${COLORS.line}`, borderRadius: 10, padding: 16 }}>
+        <div style={{ fontSize: 12, color: COLORS.textMuted, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: 0.5, marginBottom: 12 }}>ACTUAL MAINTENANCE (FROM YOUR LOGS)</div>
+        {actualTDEE ? (
+          <>
+            <div className="flex" style={{ gap: 12, flexWrap: "wrap", marginBottom: 10 }}>
+              <StatCard label="REAL TDEE" value={`${Math.round(actualTDEE.tdee).toLocaleString()} kcal`} sub={`over ${actualTDEE.spanDays} days`} color={CATEGORY_COLORS.Core} />
+              <StatCard label="AVG LOGGED INTAKE" value={`${Math.round(actualTDEE.avgDailyCalories).toLocaleString()} kcal`} sub={`${actualTDEE.daysLogged} days logged`} color={CATEGORY_COLORS.Pull} />
+              <StatCard label="WEIGHT CHANGE" value={`${actualTDEE.weightChangeKg >= 0 ? "+" : ""}${fmt(unit === "kg" ? actualTDEE.weightChangeKg : kgToLb(actualTDEE.weightChangeKg))}${unit}`} sub="over same span" color={actualTDEE.weightChangeKg >= 0 ? CATEGORY_COLORS.Push : CATEGORY_COLORS.Pull} />
+            </div>
+            <div style={{ fontSize: 10.5, color: COLORS.textFaint }}>
+              Worked out from what you actually ate vs how your weight actually moved — usually more accurate than the formula above once you've got consistent data.
+            </div>
+          </>
+        ) : (
+          <div style={{ fontSize: 12.5, color: COLORS.textFaint }}>
+            Needs at least ~10 days of bodyweight entries and food logged on 70%+ of those days within the last 30 days. Keep logging both consistently and this fills in automatically.
+          </div>
+        )}
       </div>
 
       <div style={{ background: COLORS.surface, border: `1px solid ${COLORS.line}`, borderRadius: 10, padding: 16 }}>
@@ -3034,8 +3249,24 @@ function ExercisesTab({ exercises, entries, addExercise, updateExercise, deleteE
 function HistoryTab({ exercises, entries, exMap, bwEntries, unit, cardioEntries }) {
   const [view, setView] = useState("calendar"); // calendar | week | month | year
 
+  const streak = useMemo(() => {
+    const trainedDates = new Set([...entries.map((e) => e.date), ...cardioEntries.map((e) => e.date)]);
+    if (trainedDates.size === 0) return 0;
+    let count = 0;
+    let cursor = new Date();
+    if (!trainedDates.has(ymd(cursor))) cursor = addDays(cursor, -1); // don't break the streak just because today hasn't happened yet
+    while (trainedDates.has(ymd(cursor))) { count++; cursor = addDays(cursor, -1); }
+    return count;
+  }, [entries, cardioEntries]);
+
   return (
     <div className="flex flex-col" style={{ gap: 18 }}>
+      {streak > 0 && (
+        <div className="flex items-center" style={{ gap: 8, alignSelf: "flex-start", padding: "7px 14px", borderRadius: 99, background: CATEGORY_COLORS.Push + "1a", border: `1px solid ${CATEGORY_COLORS.Push}55` }}>
+          <Flame size={14} color={CATEGORY_COLORS.Push} />
+          <span style={{ fontSize: 12.5, fontWeight: 600, color: CATEGORY_COLORS.Push }}>{streak} day{streak === 1 ? "" : "s"} streak · strength + cardio combined</span>
+        </div>
+      )}
       <Segmented
         options={[
           { value: "calendar", label: "Calendar" },
