@@ -298,9 +298,9 @@ const COLORS = { ...DARK_PALETTE };
 // reusing the light-mode hex values — mid-saturation colors tuned for a white background read
 // a bit flat against a dark one, so dark mode gets brighter, more saturated versions instead.
 const CATEGORY_COLORS_LIGHT = { Push: "#D6483F", Pull: "#3573A5", Legs: "#DDA83A", Core: "#4C9A6A", Other: "#B5B5BA" };
-const CATEGORY_COLORS_DARK = { Push: "#FF6259", Pull: "#4FA6E8", Legs: "#FFC247", Core: "#4FD98A", Other: "#C9C9D0" };
+const CATEGORY_COLORS_DARK = { Push: "#d51500", Pull: "#0072B2", Legs: "#E69F00", Core: "#009e15", Other: "#C9C9D0" };
 const CARDIO_COLOR_LIGHT = "#8C5FC2";
-const CARDIO_COLOR_DARK = "#B285F0";
+const CARDIO_COLOR_DARK = "#cc23bb";
 const CATEGORY_COLORS = { ...CATEGORY_COLORS_DARK };
 let CARDIO_COLOR = CARDIO_COLOR_DARK;
 
@@ -331,6 +331,25 @@ const MUSCLE_GROUPS = {
 };
 const MUSCLE_LIST = Object.entries(MUSCLE_GROUPS).flatMap(([cat, muscles]) => muscles.map((m) => ({ muscle: m, category: cat })));
 const MUSCLE_TO_CATEGORY = Object.fromEntries(MUSCLE_LIST.map((m) => [m.muscle, m.category]));
+
+// WCAG relative luminance / contrast, used to pick legible text color on top of whichever
+// category or cardio color is behind it — some colors (bright amber, for instance) read fine
+// as accents but fail badly with white text at small sizes, so this picks whichever of
+// white/near-black actually gives better contrast rather than assuming white always works.
+function relativeLuminance(hex) {
+  const num = parseInt(hex.replace("#", ""), 16);
+  const r = (num >> 16) & 0xff, g = (num >> 8) & 0xff, b = num & 0xff;
+  const lin = (c) => { const s = c / 255; return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4); };
+  return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+}
+function contrastRatio(hex1, hex2) {
+  const l1 = relativeLuminance(hex1), l2 = relativeLuminance(hex2);
+  const lighter = Math.max(l1, l2), darker = Math.min(l1, l2);
+  return (lighter + 0.05) / (darker + 0.05);
+}
+function contrastTextColor(bgHex) {
+  return contrastRatio(bgHex, "#FFFFFF") >= contrastRatio(bgHex, "#1C1C1E") ? "#fff" : "#1C1C1E";
+}
 
 function shadeHex(hex, percent) {
   const num = parseInt(hex.replace("#", ""), 16);
@@ -1543,7 +1562,7 @@ function LogTab({ exercises, entries, exMap, unit, addExercise, addEntry, update
           )}
           <label style={{ fontSize: 11, color: COLORS.textMuted }}>Date</label>
           <input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={{ width: "100%", padding: "8px 10px", marginTop: 5, marginBottom: 14, borderRadius: 7, border: `1px solid ${COLORS.line}`, background: COLORS.surfaceRaised, color: COLORS.text, fontSize: 13 }} />
-          <button onClick={submit} disabled={!canSubmit} style={{ width: "100%", padding: "11px 0", borderRadius: 8, border: "none", background: canSubmit ? CATEGORY_COLORS[cat] : COLORS.line, color: canSubmit ? "#fff" : COLORS.textFaint, fontWeight: 700, fontSize: 13.5, letterSpacing: 0.4, cursor: canSubmit ? "pointer" : "not-allowed" }}>LOG SET</button>
+          <button onClick={submit} disabled={!canSubmit} style={{ width: "100%", padding: "11px 0", borderRadius: 8, border: "none", background: canSubmit ? CATEGORY_COLORS[cat] : COLORS.line, color: canSubmit ? contrastTextColor(CATEGORY_COLORS[cat]) : COLORS.textFaint, fontWeight: 700, fontSize: 13.5, letterSpacing: 0.4, cursor: canSubmit ? "pointer" : "not-allowed" }}>LOG SET</button>
         </div>
 
         <div style={{ flex: "1 1 220px", background: COLORS.surface, border: `1px solid ${COLORS.line}`, borderRadius: 10, padding: 16, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
@@ -2149,7 +2168,7 @@ function CardioTab({ cardioEntries, unit, addCardio, updateCardio, deleteCardio,
               <input value={newActivityName} onChange={(e) => setNewActivityName(e.target.value)} placeholder={mode === "sport" ? "e.g. Netball" : "e.g. Skiing"}
                 style={{ flex: 1, padding: "8px 10px", borderRadius: 6, border: `1px solid ${COLORS.line}`, background: COLORS.surface, color: COLORS.text, fontSize: 13 }} />
               <button onClick={handleAddCustomActivity} disabled={!newActivityName.trim()}
-                style={{ padding: "8px 14px", borderRadius: 6, border: "none", background: newActivityName.trim() ? CARDIO_COLOR : COLORS.line, color: newActivityName.trim() ? "#fff" : COLORS.textFaint, fontWeight: 700, fontSize: 12.5, cursor: newActivityName.trim() ? "pointer" : "not-allowed" }}>
+                style={{ padding: "8px 14px", borderRadius: 6, border: "none", background: newActivityName.trim() ? CARDIO_COLOR : COLORS.line, color: newActivityName.trim() ? contrastTextColor(CARDIO_COLOR) : COLORS.textFaint, fontWeight: 700, fontSize: 12.5, cursor: newActivityName.trim() ? "pointer" : "not-allowed" }}>
                 Add
               </button>
             </div>
@@ -2238,7 +2257,7 @@ function CardioTab({ cardioEntries, unit, addCardio, updateCardio, deleteCardio,
           style={{ width: "100%", padding: "9px 10px", marginTop: 5, marginBottom: 14, borderRadius: 7, border: `1px solid ${COLORS.line}`, background: COLORS.surfaceRaised, color: COLORS.text, fontSize: 13 }} />
 
         <button onClick={submit} disabled={!canSubmit}
-          style={{ width: "100%", padding: "11px 0", borderRadius: 8, border: "none", background: canSubmit ? CARDIO_COLOR : COLORS.line, color: canSubmit ? "#fff" : COLORS.textFaint, fontWeight: 700, fontSize: 13.5, letterSpacing: 0.4, cursor: canSubmit ? "pointer" : "not-allowed" }}>
+          style={{ width: "100%", padding: "11px 0", borderRadius: 8, border: "none", background: canSubmit ? CARDIO_COLOR : COLORS.line, color: canSubmit ? contrastTextColor(CARDIO_COLOR) : COLORS.textFaint, fontWeight: 700, fontSize: 13.5, letterSpacing: 0.4, cursor: canSubmit ? "pointer" : "not-allowed" }}>
           LOG SESSION
         </button>
       </div>
@@ -2448,7 +2467,7 @@ function BodyweightTab({ entries, unit, addBw, deleteBw }) {
               <input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={{ width: "100%", padding: "9px 10px", marginTop: 5, borderRadius: 7, border: `1px solid ${COLORS.line}`, background: COLORS.surfaceRaised, color: COLORS.text, fontSize: 13 }} />
             </div>
           </div>
-          <button onClick={submit} disabled={!(parseFloat(weight) > 0)} style={{ width: "100%", padding: "11px 0", borderRadius: 8, border: "none", background: parseFloat(weight) > 0 ? CATEGORY_COLORS.Legs : COLORS.line, color: parseFloat(weight) > 0 ? "#fff" : COLORS.textFaint, fontWeight: 700, fontSize: 13.5, cursor: parseFloat(weight) > 0 ? "pointer" : "not-allowed" }}>LOG WEIGHT</button>
+          <button onClick={submit} disabled={!(parseFloat(weight) > 0)} style={{ width: "100%", padding: "11px 0", borderRadius: 8, border: "none", background: parseFloat(weight) > 0 ? CATEGORY_COLORS.Legs : COLORS.line, color: parseFloat(weight) > 0 ? contrastTextColor(CATEGORY_COLORS.Legs) : COLORS.textFaint, fontWeight: 700, fontSize: 13.5, cursor: parseFloat(weight) > 0 ? "pointer" : "not-allowed" }}>LOG WEIGHT</button>
         </div>
         {latest && (
           <div className="flex" style={{ gap: 12, flex: "1 1 240px", flexWrap: "wrap" }}>
@@ -2684,7 +2703,7 @@ function NutritionTab({ bwEntries, unit, foodEntries, addFood, deleteFood, profi
                   <div style={{ fontSize: 10.5, color: COLORS.textFaint, fontFamily: "'IBM Plex Mono', monospace" }}>{Math.round(fav.calories)} kcal</div>
                 </div>
                 <button onClick={() => quickAddFavorite(fav)} title="Log this now"
-                  style={{ width: 26, height: 26, borderRadius: 99, border: "none", background: CATEGORY_COLORS.Legs, color: "#fff", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  style={{ width: 26, height: 26, borderRadius: 99, border: "none", background: CATEGORY_COLORS.Legs, color: contrastTextColor(CATEGORY_COLORS.Legs), cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
                   <Plus size={13} />
                 </button>
                 <button onClick={() => deleteFavoriteFood(fav.id)} title="Remove favorite"
@@ -2735,7 +2754,7 @@ function NutritionTab({ bwEntries, unit, foodEntries, addFood, deleteFood, profi
             </div>
             <div className="flex" style={{ gap: 8 }}>
               <button onClick={addScannedFood} disabled={!(parseFloat(scanGrams) > 0)}
-                style={{ flex: 1, padding: "9px 0", borderRadius: 7, border: "none", background: parseFloat(scanGrams) > 0 ? CATEGORY_COLORS.Legs : COLORS.line, color: parseFloat(scanGrams) > 0 ? "#fff" : COLORS.textFaint, fontWeight: 700, fontSize: 12.5, cursor: parseFloat(scanGrams) > 0 ? "pointer" : "not-allowed" }}>
+                style={{ flex: 1, padding: "9px 0", borderRadius: 7, border: "none", background: parseFloat(scanGrams) > 0 ? CATEGORY_COLORS.Legs : COLORS.line, color: parseFloat(scanGrams) > 0 ? contrastTextColor(CATEGORY_COLORS.Legs) : COLORS.textFaint, fontWeight: 700, fontSize: 12.5, cursor: parseFloat(scanGrams) > 0 ? "pointer" : "not-allowed" }}>
                 Add to Log
               </button>
               <button onClick={closeScanner} style={{ padding: "9px 14px", borderRadius: 7, border: `1px solid ${COLORS.line}`, background: "transparent", color: COLORS.textMuted, fontSize: 12.5, cursor: "pointer" }}>Cancel</button>
@@ -2978,7 +2997,7 @@ function ExercisesTab({ exercises, entries, addExercise, updateExercise, deleteE
                         </span>
                         <div className="flex" style={{ gap: 8 }}>
                           <button onClick={() => { deleteExercise(ex.id); setConfirmDeleteId(null); }}
-                            style={{ padding: "6px 12px", borderRadius: 6, border: "none", background: CATEGORY_COLORS.Push, color: "#fff", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>Delete</button>
+                            style={{ padding: "6px 12px", borderRadius: 6, border: "none", background: CATEGORY_COLORS.Push, color: contrastTextColor(CATEGORY_COLORS.Push), fontWeight: 700, fontSize: 12, cursor: "pointer" }}>Delete</button>
                           <button onClick={() => setConfirmDeleteId(null)} style={{ padding: "6px 12px", borderRadius: 6, border: `1px solid ${COLORS.line}`, background: "transparent", color: COLORS.textMuted, fontSize: 12, cursor: "pointer" }}>Cancel</button>
                         </div>
                       </div>
@@ -3535,7 +3554,7 @@ function SettingsPanel({ exercises, entries, bwEntries, routines, foodEntries, o
             {pendingImport.exportedAt ? ` (from ${new Date(pendingImport.exportedAt).toLocaleDateString()})` : ""}. This can't be undone.
           </div>
           <div className="flex" style={{ gap: 8 }}>
-            <button onClick={confirmRestore} style={{ ...btnStyle, background: CATEGORY_COLORS.Push, color: "#fff" }}>Restore &amp; Overwrite</button>
+            <button onClick={confirmRestore} style={{ ...btnStyle, background: CATEGORY_COLORS.Push, color: contrastTextColor(CATEGORY_COLORS.Push) }}>Restore &amp; Overwrite</button>
             <button onClick={cancelRestore} style={{ ...btnStyle, flex: "0 0 auto", padding: "9px 16px", background: "transparent", border: `1px solid ${COLORS.line}`, color: COLORS.textMuted }}>Cancel</button>
           </div>
         </div>
